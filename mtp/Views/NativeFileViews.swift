@@ -1243,33 +1243,105 @@ struct CompactInfoRow: View {
 
 
 // MARK: - 支持 Quick Look 的自定义 TableView
+@MainActor
 class QuickLookEnabledTableView: NSTableView {
     weak var coordinator: NativeListView.Coordinator?
     
     override func keyDown(with event: NSEvent) {
-        // 处理空格键
-        if event.keyCode == 49 { // 空格键
-            coordinator?.quickLookAction()
+        if handleFinderKeyCommand(event) {
             return
         }
         
         // 其他键交给父类处理
         super.keyDown(with: event)
     }
+    
+    private func handleFinderKeyCommand(_ event: NSEvent) -> Bool {
+        let command = event.modifierFlags.contains(.command)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        
+        if event.keyCode == 49 {
+            coordinator?.quickLookAction()
+            return true
+        }
+        
+        if command, key == "a" {
+            AppCommandCenter.shared.selectAll()
+            return true
+        }
+        
+        if command, key == "r" {
+            AppCommandCenter.shared.refresh()
+            return true
+        }
+        
+        if command, key == "d" {
+            AppCommandCenter.shared.download()
+            return true
+        }
+        
+        if command, event.keyCode == 51 {
+            AppCommandCenter.shared.deleteSelected()
+            return true
+        }
+        
+        if event.keyCode == 36 {
+            AppCommandCenter.shared.openSelected()
+            return true
+        }
+        
+        return false
+    }
 }
 
 // MARK: - 支持 Quick Look 的自定义 CollectionView
+@MainActor
 class QuickLookEnabledCollectionView: NSCollectionView {
     weak var coordinator: NativeIconView.Coordinator?
     
     override func keyDown(with event: NSEvent) {
-        // 处理空格键
-        if event.keyCode == 49 { // 空格键
-            coordinator?.quickLookAction()
+        if handleFinderKeyCommand(event) {
             return
         }
         
         // 其他键交给父类处理
         super.keyDown(with: event)
+    }
+    
+    private func handleFinderKeyCommand(_ event: NSEvent) -> Bool {
+        let command = event.modifierFlags.contains(.command)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        
+        if event.keyCode == 49 {
+            coordinator?.quickLookAction()
+            return true
+        }
+        
+        if command, key == "a" {
+            AppCommandCenter.shared.selectAll()
+            return true
+        }
+        
+        if command, key == "r" {
+            AppCommandCenter.shared.refresh()
+            return true
+        }
+        
+        if command, key == "d" {
+            AppCommandCenter.shared.download()
+            return true
+        }
+        
+        if command, event.keyCode == 51 {
+            AppCommandCenter.shared.deleteSelected()
+            return true
+        }
+        
+        if event.keyCode == 36 {
+            AppCommandCenter.shared.openSelected()
+            return true
+        }
+        
+        return false
     }
 }

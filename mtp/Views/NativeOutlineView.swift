@@ -23,17 +23,19 @@ struct NativeOutlineView: NSViewRepresentable {
         let outlineView = FinderStyleOutlineView()
         outlineView.style = .fullWidth
         outlineView.rowSizeStyle = .default
-        outlineView.usesAlternatingRowBackgroundColors = true  // 启用交替行背景
+        outlineView.usesAlternatingRowBackgroundColors = false
         outlineView.allowsMultipleSelection = true
         outlineView.allowsColumnReordering = false
         outlineView.allowsColumnResizing = true
         outlineView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         outlineView.floatsGroupRows = false
-        outlineView.rowHeight = 20
-        outlineView.intercellSpacing = NSSize(width: 3, height: 2)
+        outlineView.rowHeight = 24
+        outlineView.intercellSpacing = NSSize(width: 0, height: 0)
         outlineView.indentationPerLevel = 16
         outlineView.autoresizesOutlineColumn = true
-        outlineView.selectionHighlightStyle = .regular  // 使用标准高亮样式（圆角）
+        outlineView.selectionHighlightStyle = .regular
+        outlineView.gridStyleMask = []
+        outlineView.backgroundColor = .textBackgroundColor
         
         // 设置双击动作
         outlineView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
@@ -217,8 +219,7 @@ struct NativeOutlineView: NSViewRepresentable {
             case "name":
                 // 图标 + 文件名（outline 列会自动添加展开/折叠三角形）
                 let imageView = NSImageView()
-                imageView.image = NSImage(systemSymbolName: fileItem.icon, accessibilityDescription: nil)
-                imageView.contentTintColor = fileItem.iconColorNS
+                imageView.image = icon(for: fileItem)
                 imageView.imageScaling = .scaleProportionallyDown
                 imageView.translatesAutoresizingMaskIntoConstraints = false
                 
@@ -227,7 +228,7 @@ struct NativeOutlineView: NSViewRepresentable {
                 textField.isBordered = false
                 textField.backgroundColor = .clear
                 textField.isEditable = false
-                textField.font = .systemFont(ofSize: 13)
+                textField.font = .systemFont(ofSize: NSFont.systemFontSize)
                 textField.lineBreakMode = .byTruncatingTail
                 textField.translatesAutoresizingMaskIntoConstraints = false
                 
@@ -235,13 +236,13 @@ struct NativeOutlineView: NSViewRepresentable {
                 cellView?.addSubview(textField)
                 
                 NSLayoutConstraint.activate([
-                    imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 2),
+                    imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 4),
                     imageView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
                     imageView.widthAnchor.constraint(equalToConstant: 16),
                     imageView.heightAnchor.constraint(equalToConstant: 16),
                     
-                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 4),
-                    textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -2),
+                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
+                    textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -6),
                     textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor)
                 ])
                 
@@ -250,6 +251,7 @@ struct NativeOutlineView: NSViewRepresentable {
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
                 formatter.timeStyle = .short
+                formatter.doesRelativeDateFormatting = true
                 textField.stringValue = formatter.string(from: fileItem.modifiedDate)
                 textField.textColor = SystemColors.secondaryTextNS
                 cellView?.addSubview(textField)
@@ -460,7 +462,7 @@ struct NativeOutlineView: NSViewRepresentable {
             textField.isBordered = false
             textField.backgroundColor = .clear
             textField.isEditable = false
-            textField.font = .systemFont(ofSize: 13)
+            textField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             textField.lineBreakMode = .byTruncatingTail
             textField.translatesAutoresizingMaskIntoConstraints = false
             return textField
@@ -468,16 +470,36 @@ struct NativeOutlineView: NSViewRepresentable {
         
         private func constrainTextField(_ textField: NSTextField, in cellView: NSTableCellView) {
             NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 2),
-                textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -2),
+                textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 6),
+                textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -6),
                 textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
             ])
+        }
+        
+        private func icon(for file: FileItem) -> NSImage? {
+            if file.isDirectory {
+                return NSImage(named: NSImage.folderName)
+            }
+            
+            let fileType = file.fileExtension.isEmpty ? "public.data" : file.fileExtension
+            let icon = NSWorkspace.shared.icon(forFileType: fileType)
+            icon.size = NSSize(width: 16, height: 16)
+            return icon
         }
     }
 }
 
 // MARK: - 自定义 OutlineView
+@MainActor
 class FinderStyleOutlineView: NSOutlineView {
+    override func keyDown(with event: NSEvent) {
+        if handleFinderKeyCommand(event) {
+            return
+        }
+        
+        super.keyDown(with: event)
+    }
+    
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
@@ -488,6 +510,43 @@ class FinderStyleOutlineView: NSOutlineView {
         }
         
         return super.menu(for: event)
+    }
+    
+    private func handleFinderKeyCommand(_ event: NSEvent) -> Bool {
+        let command = event.modifierFlags.contains(.command)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        
+        if event.keyCode == 49 {
+            AppCommandCenter.shared.quickLook()
+            return true
+        }
+        
+        if command, key == "a" {
+            AppCommandCenter.shared.selectAll()
+            return true
+        }
+        
+        if command, key == "r" {
+            AppCommandCenter.shared.refresh()
+            return true
+        }
+        
+        if command, key == "d" {
+            AppCommandCenter.shared.download()
+            return true
+        }
+        
+        if command, event.keyCode == 51 {
+            AppCommandCenter.shared.deleteSelected()
+            return true
+        }
+        
+        if event.keyCode == 36 {
+            AppCommandCenter.shared.openSelected()
+            return true
+        }
+        
+        return false
     }
 }
 

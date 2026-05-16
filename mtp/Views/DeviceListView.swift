@@ -16,51 +16,36 @@ struct DeviceListView: View {
         VStack(spacing: 0) {
             // 错误消息
             if let errorMessage = viewModel.errorMessage {
-                VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(SemanticFonts.iconRegular)
-                        .foregroundColor(.orange)
-                    Text(errorMessage)
-                        .font(SemanticFonts.caption1)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                .padding()
-                .background(Color.orange.opacity(0.1))
-                .cornerRadius(8)
-                .padding()
+                MTPEmptyStateView(
+                    systemImage: "exclamationmark.triangle",
+                    title: "无法连接设备",
+                    message: errorMessage,
+                    actionTitle: "重新扫描",
+                    action: {
+                        Task { await viewModel.scanDevices() }
+                    }
+                )
             }
             
             // 设备列表
-            if viewModel.devices.isEmpty && !viewModel.isScanning {
-                VStack(spacing: 12) {
-                    Image(systemName: "iphone.slash")
-                        .font(SemanticFonts.iconMedium)
-                        .foregroundColor(.secondary)
-                    Text("未检测到设备")
-                        .foregroundColor(.secondary)
-                    VStack(spacing: 4) {
-                        Text("请连接 Android 设备并启用 MTP 模式")
-                            .font(SemanticFonts.caption1)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                        Text("设备插入后会自动检测")
-                            .font(SemanticFonts.caption2)
-                            .foregroundColor(.secondary.opacity(0.7))
-                            .multilineTextAlignment(.center)
+            if viewModel.errorMessage != nil {
+                EmptyView()
+            } else if viewModel.devices.isEmpty && !viewModel.isScanning {
+                MTPEmptyStateView(
+                    systemImage: "iphone.slash",
+                    title: "未检测到设备",
+                    message: "连接 Android 设备，解锁手机，并在 USB 通知中选择文件传输或 MTP 模式。",
+                    actionTitle: "扫描设备",
+                    action: {
+                        Task { await viewModel.scanDevices() }
                     }
-                    .padding(.horizontal)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                )
             } else if viewModel.isScanning {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .scaleEffect(1.2)
-                    Text("正在扫描设备...")
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                MTPEmptyStateView(
+                    systemImage: "iphone.gen3.radiowaves.left.and.right",
+                    title: "正在扫描设备",
+                    message: "MTPMate 正在查找可用的 Android/MTP 设备，请保持设备已解锁。"
+                )
             } else {
                 ScrollView {
                     VStack(spacing: 8) {

@@ -11,16 +11,16 @@ import SwiftUI
 
 // MARK: - 文件 Promise Provider
 @objc class FilePromiseProvider: NSFilePromiseProvider {
-    let viewModel: MTPViewModel
-    let file: FileItem
-    private let promiseDelegate: FilePromiseDelegate
+    var viewModel: MTPViewModel?
+    var file: FileItem?
+    private var promiseDelegate: FilePromiseDelegate?
     
     init(viewModel: MTPViewModel, file: FileItem) {
+        // 创建代理对象
+        let promiseDelegate = FilePromiseDelegate(viewModel: viewModel, file: file)
         self.viewModel = viewModel
         self.file = file
-        
-        // 创建代理对象
-        self.promiseDelegate = FilePromiseDelegate(viewModel: viewModel, file: file)
+        self.promiseDelegate = promiseDelegate
         
         // 设置文件类型
         let fileType: String
@@ -30,42 +30,44 @@ import SwiftUI
             fileType = "public.\(file.fileExtension)"
         }
         
-        super.init(fileType: fileType, delegate: promiseDelegate)
+        super.init()
+        self.fileType = fileType
+        self.delegate = promiseDelegate
     }
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
     
-    @available(*, unavailable)
     override init() {
-        fatalError("init() has not been implemented")
+        super.init()
     }
 }
 
 // MARK: - 批量文件 Promise Provider
 @objc class BatchFilePromiseProvider: NSFilePromiseProvider {
-    let viewModel: MTPViewModel
-    let files: [FileItem]
-    private let promiseDelegate: BatchFilePromiseDelegate
+    var viewModel: MTPViewModel?
+    var files: [FileItem] = []
+    private var promiseDelegate: BatchFilePromiseDelegate?
     
     init(viewModel: MTPViewModel, files: [FileItem]) {
+        // 创建代理对象
+        let promiseDelegate = BatchFilePromiseDelegate(viewModel: viewModel, files: files)
         self.viewModel = viewModel
         self.files = files
+        self.promiseDelegate = promiseDelegate
         
-        // 创建代理对象
-        self.promiseDelegate = BatchFilePromiseDelegate(viewModel: viewModel, files: files)
-        
-        super.init(fileType: "public.data", delegate: promiseDelegate)
+        super.init()
+        self.fileType = "public.data"
+        self.delegate = promiseDelegate
     }
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
     
-    @available(*, unavailable)
     override init() {
-        fatalError("init() has not been implemented")
+        super.init()
     }
 }
 

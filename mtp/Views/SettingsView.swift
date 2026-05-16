@@ -7,53 +7,90 @@
 
 import SwiftUI
 import Combine
+import AppKit
 
 struct SettingsView: View {
     @ObservedObject var settings = AppSettings.shared
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
-        VStack(spacing: 20) {
-            Text("设置")
-                .font(SemanticFonts.title2)
-                .fontWeight(.semibold)
-            
-            Form {
-                Section("显示设置") {
-                    Toggle(isOn: $settings.showStatusBar) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("显示状态栏")
-                            Text("在窗口底部显示项目数量和选择信息")
-                                .font(SemanticFonts.caption1)
-                                .foregroundColor(.secondary)
-                        }
+        Form {
+            Section("外观") {
+                Picker("默认视图", selection: $settings.fileViewModeRaw) {
+                    ForEach(FileViewMode.allCases, id: \.rawValue) { mode in
+                        Label(mode.rawValue, systemImage: mode.icon)
+                            .tag(mode.rawValue)
                     }
                 }
                 
-                Section("通知设置") {
-                    Toggle(isOn: $settings.showNotificationOnComplete) {
-                        Text("操作完成时显示通知")
-                    }
-                    
-                    Toggle(isOn: $settings.playSoundOnComplete) {
-                        Text("操作完成时播放声音")
-                    }
-                }
+                Toggle("显示状态栏", isOn: $settings.showStatusBar)
+                Toggle("显示隐藏文件", isOn: $settings.showHiddenFiles)
+                Toggle("启动时显示传输队列", isOn: $settings.showTransferQueue)
             }
-            .formStyle(.grouped)
             
-            Spacer()
-            
-            HStack {
-                Spacer()
-                Button("关闭") {
-                    dismiss()
+            Section("传输") {
+                Picker("文件冲突", selection: $settings.conflictResolutionRaw) {
+                    ForEach(ConflictResolution.allCases) { resolution in
+                        Text(resolution.title).tag(resolution.rawValue)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
+                
+                Toggle("使用默认下载位置", isOn: $settings.useDefaultDownloadDirectory)
+                
+                HStack {
+                    Text("下载位置")
+                    Spacer()
+                    Text(defaultDownloadDirectoryLabel)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("选择...") {
+                        chooseDefaultDownloadDirectory()
+                    }
+                }
+                .disabled(!settings.useDefaultDownloadDirectory)
+            }
+            
+            Section("通知") {
+                Toggle("操作完成时显示通知", isOn: $settings.showNotificationOnComplete)
+                Toggle("操作完成时播放声音", isOn: $settings.playSoundOnComplete)
             }
         }
+        .formStyle(.grouped)
         .padding()
-        .frame(width: 450, height: 350)
+        .frame(width: 500, height: 420)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("完成") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+    
+    private var defaultDownloadDirectoryLabel: String {
+        if settings.defaultDownloadDirectoryPath.isEmpty {
+            return "未设置"
+        }
+        
+        return URL(fileURLWithPath: settings.defaultDownloadDirectoryPath).lastPathComponent
+    }
+    
+    private func chooseDefaultDownloadDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "选择"
+        
+        if let currentURL = settings.defaultDownloadDirectoryURL {
+            panel.directoryURL = currentURL
+        }
+        
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.defaultDownloadDirectoryPath = url.path
+        }
     }
 }
 

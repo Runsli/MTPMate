@@ -38,34 +38,36 @@ struct FileListView: View {
                 
                 // 文件列表
                 if viewModel.selectedDevice == nil {
-                    EmptyStateView()
+                    MTPEmptyStateView(
+                        systemImage: "iphone.and.arrow.forward",
+                        title: "选择一台设备",
+                        message: "连接 Android 设备后，在侧边栏选择设备即可浏览文件。"
+                    )
                 } else if viewModel.isLoading {
                     ProgressView("加载中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if filteredFiles.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: searchText.isEmpty ? "folder" : "magnifyingglass")
-                            .font(SemanticFonts.iconMedium)
-                            .foregroundColor(.secondary)
-                        Text(searchText.isEmpty ? "文件夹为空" : "未找到匹配的文件")
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    MTPEmptyStateView(
+                        systemImage: searchText.isEmpty ? "folder" : "magnifyingglass",
+                        title: searchText.isEmpty ? "文件夹为空" : "未找到匹配的文件",
+                        message: searchText.isEmpty ? "这个位置暂时没有文件。你可以拖拽文件到这里上传。" : "请尝试其他关键词，或清除筛选条件后重新搜索。"
+                    )
                 } else {
                     Group {
                         switch settings.fileViewMode {
                         case .icons:
-                            NativeIconView(
+                            SwiftUIFileIconGridView(
                                 viewModel: viewModel,
                                 files: sortedFiles
                             )
                         case .list:
-                            NativeOutlineView(
+                            SwiftUIFileTableView(
                                 viewModel: viewModel,
-                                files: sortedFiles
+                                files: sortedFiles,
+                                sortOrder: $sortOrder
                             )
                         case .columns:
-                            NativeBrowserView(
+                            SwiftUIColumnBrowserView(
                                 viewModel: viewModel,
                                 files: sortedFiles
                             )
@@ -181,6 +183,10 @@ struct FileListView: View {
     
     private var filteredFiles: [FileItem] {
         var files = viewModel.currentFiles
+        
+        if !settings.showHiddenFiles {
+            files = files.filter { !$0.name.hasPrefix(".") }
+        }
         
         // 搜索过滤
         if !searchText.isEmpty {

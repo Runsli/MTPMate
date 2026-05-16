@@ -28,6 +28,7 @@ final class USBDeviceMonitor {
     // 智能扫描重试管理
     private var pendingScans: [String: Int] = [:] // deviceKey -> retryCount
     private var scanWorkItems: [String: DispatchWorkItem] = [:]
+    private let scanStateQueue = DispatchQueue(label: "com.runsli.mtpmate.usbScanState")
     
     private init() {}
     
@@ -426,72 +427,75 @@ final class USBDeviceMonitor {
     /// 使用递增延迟的重试策略，确保设备有足够时间初始化MTP协议栈
     private func scheduleSmartScan(for deviceInfo: USBDeviceInfo) {
         let deviceKey = "\(deviceInfo.vendorID)-\(deviceInfo.productID)"
-        
-        // 取消之前的扫描任务（如果有）
-        scanWorkItems[deviceKey]?.cancel()
-        scanWorkItems.removeValue(forKey: deviceKey)
-        
-        // 重置重试计数
-        pendingScans[deviceKey] = 0
-        
-        // 使用递增延迟策略：1秒、3秒、6秒、10秒
         let delays: [TimeInterval] = [1.0, 3.0, 6.0, 10.0]
         
-        for (index, delay) in delays.enumerated() {
-            let workItem = DispatchWorkItem { [weak self] in
-                guard let self = self else { return }
-                
-                let currentRetry = self.pendingScans[deviceKey] ?? 0
-                
-                // 只执行当前重试次数对应的扫描
-                if currentRetry == index {
-                    Logger.debug("智能扫描尝试 \(index + 1)/\(delays.count) for \(deviceInfo.displayName)")
-                    
-                    DispatchQueue.main.async {
-                        self.onDeviceChanged?()
-                    }
-                    
-                    // 增加重试计数
-                    self.pendingScans[deviceKey] = currentRetry + 1
-                    
-                    // 如果是最后一次尝试，清理状态
-                    if index == delays.count - 1 {
-                        self.pendingScans.removeValue(forKey: deviceKey)
-                        self.scanWorkItems.removeValue(forKey: deviceKey)
-                        Logger.debug("智能扫描完成 for \(deviceInfo.displayName)")
-                    }
-                }
-            }
+        scanStateQueue.async { [weak self] in
+            guard let self else { return }
             
-            // 保存工作项以便取消
-            scanWorkItems[deviceKey] = workItem
-            
-            // 安排延迟执行
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(
-                deadline: .now() + delay,
-                execute: workItem
-            )
+            self.scanWorkItems[deviceKey]?.cancel()
+            self.scanWorkItems.removeValue(forKey: deviceKey)
+            self.pendingScans[deviceKey] = 0
+            self.scheduleSmartScanAttempt(for: deviceInfo, deviceKey: deviceKey, delays: delays, index: 0)
         }
         
         Logger.info("已为 \(deviceInfo.displayName) 安排 \(delays.count) 次智能扫描")
     }
     
+    private func scheduleSmartScanAttempt(
+        for deviceInfo: USBDeviceInfo,
+        deviceKey: String,
+        delays: [TimeInterval],
+        index: Int
+    ) {
+        guard index < delays.count else {
+            pendingScans.removeValue(forKey: deviceKey)
+            scanWorkItems.removeValue(forKey: deviceKey)
+            Logger.debug("智能扫描完成 for \(deviceInfo.displayName)")
+            return
+        }
+        
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            
+            let currentRetry = self.pendingScans[deviceKey] ?? 0
+            guard currentRetry == index else { return }
+            
+            Logger.debug("智能扫描尝试 \(index + 1)/\(delays.count) for \(deviceInfo.displayName)")
+            
+            DispatchQueue.main.async {
+                self.onDeviceChanged?()
+            }
+            
+            self.pendingScans[deviceKey] = currentRetry + 1
+            self.scheduleSmartScanAttempt(for: deviceInfo, deviceKey: deviceKey, delays: delays, index: index + 1)
+        }
+        
+        scanWorkItems[deviceKey] = workItem
+        scanStateQueue.asyncAfter(deadline: .now() + delays[index], execute: workItem)
+    }
+    
     /// 取消指定设备的待处理扫描
     func cancelPendingScan(for deviceInfo: USBDeviceInfo) {
         let deviceKey = "\(deviceInfo.vendorID)-\(deviceInfo.productID)"
-        scanWorkItems[deviceKey]?.cancel()
-        scanWorkItems.removeValue(forKey: deviceKey)
-        pendingScans.removeValue(forKey: deviceKey)
+        scanStateQueue.async { [weak self] in
+            self?.scanWorkItems[deviceKey]?.cancel()
+            self?.scanWorkItems.removeValue(forKey: deviceKey)
+            self?.pendingScans.removeValue(forKey: deviceKey)
+        }
         Logger.debug("已取消 \(deviceInfo.displayName) 的待处理扫描")
     }
     
     /// 取消所有待处理的扫描
     func cancelAllPendingScans() {
-        for workItem in scanWorkItems.values {
-            workItem.cancel()
+        scanStateQueue.async { [weak self] in
+            guard let self else { return }
+            
+            for workItem in self.scanWorkItems.values {
+                workItem.cancel()
+            }
+            self.scanWorkItems.removeAll()
+            self.pendingScans.removeAll()
         }
-        scanWorkItems.removeAll()
-        pendingScans.removeAll()
         Logger.debug("已取消所有待处理的扫描")
     }
 }

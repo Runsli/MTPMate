@@ -40,11 +40,22 @@ enum TransferDirection {
 }
 
 /// 冲突解决策略
-enum ConflictResolution {
+enum ConflictResolution: String, CaseIterable, Identifiable {
     case ask        // 询问用户
     case rename     // 自动重命名
     case skip       // 跳过
     case overwrite  // 覆盖
+    
+    var id: String { rawValue }
+    
+    var title: String {
+        switch self {
+        case .ask: return "每次询问"
+        case .rename: return "自动重命名"
+        case .skip: return "跳过"
+        case .overwrite: return "覆盖"
+        }
+    }
 }
 
 /// 文件传输任务

@@ -23,15 +23,17 @@ struct NativeTableView: NSViewRepresentable {
         let tableView = FinderStyleTableView()
         tableView.style = .fullWidth
         tableView.rowSizeStyle = .default
-        tableView.usesAlternatingRowBackgroundColors = true  // 启用交替行背景
+        tableView.usesAlternatingRowBackgroundColors = false
         tableView.allowsMultipleSelection = true
         tableView.allowsColumnReordering = false
         tableView.allowsColumnResizing = true
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         tableView.floatsGroupRows = false
-        tableView.rowHeight = 20
-        tableView.intercellSpacing = NSSize(width: 3, height: 2)
-        tableView.selectionHighlightStyle = .regular  // 使用标准高亮样式（圆角）
+        tableView.rowHeight = 24
+        tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        tableView.selectionHighlightStyle = .regular
+        tableView.gridStyleMask = []
+        tableView.backgroundColor = .textBackgroundColor
         
         // 设置双击动作
         tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
@@ -165,8 +167,7 @@ struct NativeTableView: NSViewRepresentable {
             case "name":
                 // 图标 + 文件名
                 let imageView = NSImageView()
-                imageView.image = NSImage(systemSymbolName: file.icon, accessibilityDescription: nil)
-                imageView.contentTintColor = file.isDirectory ? .systemBlue : iconColor(for: file)
+                imageView.image = icon(for: file)
                 imageView.imageScaling = .scaleProportionallyDown
                 imageView.translatesAutoresizingMaskIntoConstraints = false
                 
@@ -175,7 +176,7 @@ struct NativeTableView: NSViewRepresentable {
                 textField.isBordered = false
                 textField.backgroundColor = .clear
                 textField.isEditable = false
-                textField.font = .systemFont(ofSize: 13)
+                textField.font = .systemFont(ofSize: NSFont.systemFontSize)
                 textField.lineBreakMode = .byTruncatingTail
                 textField.translatesAutoresizingMaskIntoConstraints = false
                 
@@ -183,13 +184,13 @@ struct NativeTableView: NSViewRepresentable {
                 cellView?.addSubview(textField)
                 
                 NSLayoutConstraint.activate([
-                    imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 2),
+                    imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 4),
                     imageView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
                     imageView.widthAnchor.constraint(equalToConstant: 16),
                     imageView.heightAnchor.constraint(equalToConstant: 16),
                     
-                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 4),
-                    textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -2),
+                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
+                    textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -6),
                     textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor)
                 ])
                 
@@ -198,6 +199,7 @@ struct NativeTableView: NSViewRepresentable {
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
                 formatter.timeStyle = .short
+                formatter.doesRelativeDateFormatting = true
                 textField.stringValue = formatter.string(from: file.modifiedDate)
                 textField.textColor = .secondaryLabelColor
                 cellView?.addSubview(textField)
@@ -372,7 +374,7 @@ struct NativeTableView: NSViewRepresentable {
             textField.isBordered = false
             textField.backgroundColor = .clear
             textField.isEditable = false
-            textField.font = .systemFont(ofSize: 13)
+            textField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             textField.lineBreakMode = .byTruncatingTail
             textField.translatesAutoresizingMaskIntoConstraints = false
             return textField
@@ -380,33 +382,36 @@ struct NativeTableView: NSViewRepresentable {
         
         private func constrainTextField(_ textField: NSTextField, in cellView: NSTableCellView) {
             NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 2),
-                textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -2),
+                textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 6),
+                textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -6),
                 textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
             ])
         }
         
-        private func iconColor(for file: FileItem) -> NSColor {
-            switch file.fileExtension {
-            case "jpg", "jpeg", "png", "gif", "heic", "webp":
-                return .systemOrange
-            case "mp4", "mov", "avi", "mkv":
-                return .systemPurple
-            case "mp3", "m4a", "wav", "flac":
-                return .systemPink
-            case "pdf":
-                return .systemRed
-            case "zip", "rar", "7z":
-                return .systemGray
-            default:
-                return .secondaryLabelColor
+        private func icon(for file: FileItem) -> NSImage? {
+            if file.isDirectory {
+                return NSImage(named: NSImage.folderName)
             }
+            
+            let fileType = file.fileExtension.isEmpty ? "public.data" : file.fileExtension
+            let icon = NSWorkspace.shared.icon(forFileType: fileType)
+            icon.size = NSSize(width: 16, height: 16)
+            return icon
         }
     }
 }
 
 // MARK: - 自定义 TableView
+@MainActor
 class FinderStyleTableView: NSTableView {
+    override func keyDown(with event: NSEvent) {
+        if handleFinderKeyCommand(event) {
+            return
+        }
+        
+        super.keyDown(with: event)
+    }
+    
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
@@ -417,6 +422,43 @@ class FinderStyleTableView: NSTableView {
         }
         
         return super.menu(for: event)
+    }
+    
+    private func handleFinderKeyCommand(_ event: NSEvent) -> Bool {
+        let command = event.modifierFlags.contains(.command)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        
+        if event.keyCode == 49 {
+            AppCommandCenter.shared.quickLook()
+            return true
+        }
+        
+        if command, key == "a" {
+            AppCommandCenter.shared.selectAll()
+            return true
+        }
+        
+        if command, key == "r" {
+            AppCommandCenter.shared.refresh()
+            return true
+        }
+        
+        if command, key == "d" {
+            AppCommandCenter.shared.download()
+            return true
+        }
+        
+        if command, event.keyCode == 51 {
+            AppCommandCenter.shared.deleteSelected()
+            return true
+        }
+        
+        if event.keyCode == 36 {
+            AppCommandCenter.shared.openSelected()
+            return true
+        }
+        
+        return false
     }
 }
 

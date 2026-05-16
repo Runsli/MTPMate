@@ -264,6 +264,20 @@ final class MTPViewModel: ObservableObject {
         }
     }
     
+    func refreshCurrentLocation() async {
+        if selectedDevice == nil {
+            await scanDevices()
+            return
+        }
+        
+        guard let currentComponent = pathComponents.last else {
+            await refreshDevices()
+            return
+        }
+        
+        await loadFiles(folderId: currentComponent.folderId)
+    }
+    
     func connectDevice(_ device: MTPDevice) async {
         do {
             try await deviceManager.connectDevice(device.id)
@@ -395,7 +409,7 @@ final class MTPViewModel: ObservableObject {
                 deviceId: device.id,
                 sourceURLs: panel.urls,
                 destinationParentId: currentFolderId,
-                conflictResolution: .ask
+                conflictResolution: AppSettings.shared.conflictResolution
             )
         }
     }
@@ -404,6 +418,26 @@ final class MTPViewModel: ObservableObject {
     func downloadSelectedFiles() {
         let files = currentFiles.filter { selectedFiles.contains($0.id) }
         guard !files.isEmpty, let device = selectedDevice else { return }
+        let settings = AppSettings.shared
+        
+        if settings.useDefaultDownloadDirectory, let directoryURL = settings.defaultDownloadDirectoryURL {
+            if files.count == 1 {
+                TransferQueueManager.shared.addDownloadTask(
+                    deviceId: device.id,
+                    file: files[0],
+                    destinationURL: directoryURL.appendingPathComponent(files[0].name),
+                    conflictResolution: settings.conflictResolution
+                )
+            } else {
+                TransferQueueManager.shared.addDownloadTasks(
+                    deviceId: device.id,
+                    files: files,
+                    destinationURL: directoryURL,
+                    conflictResolution: settings.conflictResolution
+                )
+            }
+            return
+        }
         
         if files.count == 1 {
             // 单个文件，使用保存对话框
@@ -416,7 +450,7 @@ final class MTPViewModel: ObservableObject {
                     deviceId: device.id,
                     file: files[0],
                     destinationURL: url,
-                    conflictResolution: .ask
+                    conflictResolution: settings.conflictResolution
                 )
             }
         } else {
@@ -432,7 +466,7 @@ final class MTPViewModel: ObservableObject {
                     deviceId: device.id,
                     files: files,
                     destinationURL: url,
-                    conflictResolution: .ask
+                    conflictResolution: settings.conflictResolution
                 )
             }
         }
@@ -448,7 +482,7 @@ final class MTPViewModel: ObservableObject {
             deviceId: device.id,
             files: files,
             destinationURL: destinationURL,
-            conflictResolution: .ask
+            conflictResolution: AppSettings.shared.conflictResolution
         )
     }
     
@@ -478,7 +512,7 @@ final class MTPViewModel: ObservableObject {
             deviceId: device.id,
             sourceURLs: urls,
             destinationParentId: currentFolderId,
-            conflictResolution: .ask
+            conflictResolution: AppSettings.shared.conflictResolution
         )
     }
     
@@ -613,6 +647,19 @@ final class MTPViewModel: ObservableObject {
                     errorMessage = "打开文件失败: \(error.localizedDescription)"
                 }
             }
+        }
+    }
+    
+    func openSelectedFile() {
+        guard selectedFiles.count == 1,
+              let file = currentFiles.first(where: { selectedFiles.contains($0.id) }) else {
+            return
+        }
+        
+        if file.isDirectory {
+            navigateToFolder(file)
+        } else {
+            openFile(file)
         }
     }
     

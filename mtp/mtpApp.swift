@@ -9,6 +9,8 @@ import SwiftUI
 
 @main
 struct MTPApp: App {
+    @StateObject private var commandCenter = AppCommandCenter.shared
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -18,6 +20,54 @@ struct MTPApp: App {
             // 移除"新建"菜单项（对文件管理器来说不太适用）
             CommandGroup(replacing: .newItem) {
                 EmptyView()
+            }
+            
+            CommandMenu("操作") {
+                Button("刷新") {
+                    commandCenter.refresh()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                
+                Divider()
+                
+                Button("上传...") {
+                    commandCenter.upload()
+                }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
+                
+                Button("下载") {
+                    commandCenter.download()
+                }
+                .keyboardShortcut("d", modifiers: .command)
+                
+                Divider()
+                
+                Button("打开") {
+                    commandCenter.openSelected()
+                }
+                .keyboardShortcut(.return, modifiers: [])
+                
+                Button("快速查看") {
+                    commandCenter.quickLook()
+                }
+                .keyboardShortcut(.space, modifiers: [])
+                
+                Button("全选") {
+                    commandCenter.selectAll()
+                }
+                .keyboardShortcut("a", modifiers: .command)
+                
+                Button("删除") {
+                    commandCenter.deleteSelected()
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
+                
+                Divider()
+                
+                Button(commandCenter.isTransferQueueVisible ? "隐藏传输队列" : "显示传输队列") {
+                    commandCenter.toggleTransferQueue()
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
             }
             
             // 自定义应用菜单（只保留一个"关于"）

@@ -92,7 +92,6 @@ struct FileListView: View {
             }
             .navigationTitle(viewModel.selectedDevice?.name ?? "文件")
             .toolbar {
-                // 左侧：视图模式切换
                 ToolbarItem(placement: .navigation) {
                     Picker("视图", selection: $settings.fileViewModeRaw) {
                         ForEach(FileViewMode.allCases, id: \.rawValue) { mode in
@@ -103,63 +102,6 @@ struct FileListView: View {
                     .pickerStyle(.segmented)
                     .disabled(viewModel.selectedDevice == nil)
                     .help("切换视图模式")
-                }
-                
-                // 右侧：主要操作
-                ToolbarItemGroup(placement: .primaryAction) {
-                    // 上传按钮
-                    Button(action: { viewModel.uploadFiles() }) {
-                        Label("上传", systemImage: "arrow.up.doc")
-                    }
-                    .disabled(viewModel.selectedDevice == nil)
-                    .help("上传文件到设备")
-                    
-                    // 下载按钮
-                    Button(action: { viewModel.downloadSelectedFiles() }) {
-                        Label("下载", systemImage: "arrow.down.doc")
-                    }
-                    .disabled(viewModel.selectedFiles.isEmpty)
-                    .help("下载选中的文件")
-                    
-                    // 更多操作菜单
-                    Menu {
-                        Section("筛选") {
-                            Picker("显示", selection: $selectedFilterOption) {
-                                ForEach(FilterOption.allCases, id: \.self) { option in
-                                    Text(option.rawValue).tag(option)
-                                }
-                            }
-                        }
-                        
-                        Divider()
-                        
-                        Section("操作") {
-                            Button(action: { viewModel.previewSelectedFiles() }) {
-                                Label("快速查看", systemImage: "eye")
-                            }
-                            .disabled(viewModel.selectedFiles.isEmpty)
-                            .keyboardShortcut(.space, modifiers: [])
-                            
-                            Button(action: { showingNewFolderDialog = true }) {
-                                Label("新建文件夹", systemImage: "folder.badge.plus")
-                            }
-                            .disabled(viewModel.selectedDevice == nil)
-                            .keyboardShortcut("n", modifiers: [.command, .shift])
-                        }
-                        
-                        Divider()
-                        
-                        Section("编辑") {
-                            Button(action: { viewModel.deleteSelectedFiles() }) {
-                                Label("删除", systemImage: "trash")
-                            }
-                            .disabled(viewModel.selectedFiles.isEmpty)
-                            .keyboardShortcut(.delete, modifiers: [])
-                        }
-                    } label: {
-                        Label("更多", systemImage: "ellipsis.circle")
-                    }
-                    .help("更多操作")
                 }
             }
             .searchable(

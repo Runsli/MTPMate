@@ -393,7 +393,7 @@ final class MTPViewModel: ObservableObject {
     
     /// 使用系统对话框上传文件
     func uploadFiles() {
-        guard let device = selectedDevice else { return }
+        guard selectedDevice != nil else { return }
         
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
@@ -402,15 +402,9 @@ final class MTPViewModel: ObservableObject {
         panel.prompt = "选择要上传的文件"
         
         if panel.runModal() == .OK {
-            let currentFolderId = pathComponents.last?.folderId
-            
-            // 使用传输队列管理器
-            TransferQueueManager.shared.addUploadTasks(
-                deviceId: device.id,
-                sourceURLs: panel.urls,
-                destinationParentId: currentFolderId,
-                conflictResolution: AppSettings.shared.conflictResolution
-            )
+            Task {
+                await uploadFiles(panel.urls)
+            }
         }
     }
     
@@ -421,20 +415,8 @@ final class MTPViewModel: ObservableObject {
         let settings = AppSettings.shared
         
         if settings.useDefaultDownloadDirectory, let directoryURL = settings.defaultDownloadDirectoryURL {
-            if files.count == 1 {
-                TransferQueueManager.shared.addDownloadTask(
-                    deviceId: device.id,
-                    file: files[0],
-                    destinationURL: directoryURL.appendingPathComponent(files[0].name),
-                    conflictResolution: settings.conflictResolution
-                )
-            } else {
-                TransferQueueManager.shared.addDownloadTasks(
-                    deviceId: device.id,
-                    files: files,
-                    destinationURL: directoryURL,
-                    conflictResolution: settings.conflictResolution
-                )
+            Task {
+                await downloadFiles(files, deviceId: device.id, to: directoryURL, appendingFileName: true)
             }
             return
         }
@@ -446,12 +428,9 @@ final class MTPViewModel: ObservableObject {
             panel.prompt = "保存文件"
             
             if panel.runModal() == .OK, let url = panel.url {
-                TransferQueueManager.shared.addDownloadTask(
-                    deviceId: device.id,
-                    file: files[0],
-                    destinationURL: url,
-                    conflictResolution: settings.conflictResolution
-                )
+                Task {
+                    await downloadFiles(files, deviceId: device.id, to: url, appendingFileName: false)
+                }
             }
         } else {
             // 多个文件，选择文件夹
@@ -462,12 +441,9 @@ final class MTPViewModel: ObservableObject {
             panel.prompt = "选择保存位置"
             
             if panel.runModal() == .OK, let url = panel.url {
-                TransferQueueManager.shared.addDownloadTasks(
-                    deviceId: device.id,
-                    files: files,
-                    destinationURL: url,
-                    conflictResolution: settings.conflictResolution
-                )
+                Task {
+                    await downloadFiles(files, deviceId: device.id, to: url, appendingFileName: true)
+                }
             }
         }
     }
@@ -477,13 +453,7 @@ final class MTPViewModel: ObservableObject {
         let files = currentFiles.filter { selectedFiles.contains($0.id) }
         guard !files.isEmpty, let device = selectedDevice else { return }
         
-        // 使用传输队列管理器
-        TransferQueueManager.shared.addDownloadTasks(
-            deviceId: device.id,
-            files: files,
-            destinationURL: destinationURL,
-            conflictResolution: AppSettings.shared.conflictResolution
-        )
+        await downloadFiles(files, deviceId: device.id, to: destinationURL, appendingFileName: true)
     }
     
     /// 上传指定的文件（用于双栏传输）
@@ -491,13 +461,234 @@ final class MTPViewModel: ObservableObject {
         guard let device = selectedDevice else { return }
         
         let currentFolderId = pathComponents.last?.folderId
+        let uploadableURLs = urls.filter { url in
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+        }
         
-        // 使用传输队列管理器
-        TransferQueueManager.shared.addUploadTasks(
+        guard !uploadableURLs.isEmpty else { return }
+        
+        var existingNames = Set(currentFiles.map(\.name))
+        if existingNames.isEmpty {
+            do {
+                existingNames = Set(try await fileManager.listFiles(deviceId: device.id, parentId: currentFolderId).map(\.name))
+            } catch {
+                Logger.warning("加载上传冲突信息失败: \(error.localizedDescription)")
+            }
+        }
+        
+        var succeeded = 0
+        var failed: [(URL, Error)] = []
+        var skipped = 0
+        
+        for url in uploadableURLs {
+            do {
+                guard let finalName = chooseUploadName(
+                    originalName: url.lastPathComponent,
+                    existingNames: existingNames,
+                    resolution: AppSettings.shared.conflictResolution
+                ) else {
+                    skipped += 1
+                    continue
+                }
+                
+                _ = try await fileManager.uploadFile(
+                    deviceId: device.id,
+                    sourceURL: url,
+                    toParentId: currentFolderId,
+                    fileName: finalName,
+                    progress: { _ in }
+                )
+                
+                existingNames.insert(finalName)
+                succeeded += 1
+                Logger.info("上传完成: \(finalName)")
+            } catch {
+                failed.append((url, error))
+                Logger.error("上传失败: \(url.lastPathComponent) - \(error.localizedDescription)")
+            }
+        }
+        
+        await loadFiles(folderId: currentFolderId)
+        publishTransferResult(action: "上传", succeeded: succeeded, failed: failed.count, skipped: skipped)
+    }
+    
+    /// 下载单个文件给 NSFilePromiseProvider。completion 会等真实下载完成后再回调，让 Finder 使用系统进度。
+    func downloadPromisedFile(_ file: FileItem, to destinationURL: URL) async throws {
+        guard let device = selectedDevice else {
+            throw MTPError.deviceNotFound
+        }
+        
+        let finalURL = uniqueLocalURL(for: destinationURL)
+        try await fileManager.downloadFile(
             deviceId: device.id,
-            sourceURLs: urls,
-            destinationParentId: currentFolderId,
-            conflictResolution: AppSettings.shared.conflictResolution
+            fileId: file.id,
+            fileName: file.name,
+            to: finalURL,
+            progress: { _ in }
+        )
+    }
+    
+    private func downloadFiles(
+        _ files: [FileItem],
+        deviceId: String,
+        to destinationURL: URL,
+        appendingFileName: Bool
+    ) async {
+        var succeeded = 0
+        var failed: [(FileItem, Error)] = []
+        var skipped = 0
+        
+        for file in files {
+            let proposedURL = appendingFileName ? destinationURL.appendingPathComponent(file.name) : destinationURL
+            
+            guard let finalURL = chooseLocalDestination(
+                proposedURL: proposedURL,
+                resolution: AppSettings.shared.conflictResolution
+            ) else {
+                skipped += 1
+                continue
+            }
+            
+            do {
+                try await fileManager.downloadFile(
+                    deviceId: deviceId,
+                    fileId: file.id,
+                    fileName: file.name,
+                    to: finalURL,
+                    progress: { _ in }
+                )
+                succeeded += 1
+                Logger.info("下载完成: \(file.name)")
+            } catch {
+                failed.append((file, error))
+                Logger.error("下载失败: \(file.name) - \(error.localizedDescription)")
+            }
+        }
+        
+        publishTransferResult(action: "下载", succeeded: succeeded, failed: failed.count, skipped: skipped)
+    }
+    
+    private func chooseUploadName(
+        originalName: String,
+        existingNames: Set<String>,
+        resolution: ConflictResolution
+    ) -> String? {
+        guard existingNames.contains(originalName) else {
+            return originalName
+        }
+        
+        switch resolution {
+        case .rename:
+            return uniqueFileName(for: originalName, existingNames: existingNames)
+        case .skip:
+            return nil
+        case .overwrite:
+            return originalName
+        case .ask:
+            switch askConflictResolution(message: "设备上已存在“\(originalName)”。") {
+            case .overwrite:
+                return originalName
+            case .rename:
+                return uniqueFileName(for: originalName, existingNames: existingNames)
+            case .skip, .ask:
+                return nil
+            }
+        }
+    }
+    
+    private func chooseLocalDestination(
+        proposedURL: URL,
+        resolution: ConflictResolution
+    ) -> URL? {
+        guard FileManager.default.fileExists(atPath: proposedURL.path) else {
+            return proposedURL
+        }
+        
+        switch resolution {
+        case .rename:
+            return uniqueLocalURL(for: proposedURL)
+        case .skip:
+            return nil
+        case .overwrite:
+            return proposedURL
+        case .ask:
+            switch askConflictResolution(message: "本地已存在“\(proposedURL.lastPathComponent)”。") {
+            case .overwrite:
+                return proposedURL
+            case .rename:
+                return uniqueLocalURL(for: proposedURL)
+            case .skip, .ask:
+                return nil
+            }
+        }
+    }
+    
+    private func askConflictResolution(message: String) -> ConflictResolution {
+        let alert = NSAlert()
+        alert.messageText = "文件已存在"
+        alert.informativeText = "请选择如何处理：\(message)"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "替换")
+        alert.addButton(withTitle: "保留两者")
+        alert.addButton(withTitle: "跳过")
+        
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .overwrite
+        case .alertSecondButtonReturn:
+            return .rename
+        default:
+            return .skip
+        }
+    }
+    
+    private func uniqueFileName(for originalName: String, existingNames: Set<String>) -> String {
+        let nsName = originalName as NSString
+        let baseName = nsName.deletingPathExtension
+        let pathExtension = nsName.pathExtension
+        var counter = 1
+        
+        while true {
+            let candidate = pathExtension.isEmpty ? "\(baseName) \(counter)" : "\(baseName) \(counter).\(pathExtension)"
+            if !existingNames.contains(candidate) {
+                return candidate
+            }
+            counter += 1
+        }
+    }
+    
+    private func uniqueLocalURL(for url: URL) -> URL {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return url
+        }
+        
+        let directory = url.deletingLastPathComponent()
+        let baseName = url.deletingPathExtension().lastPathComponent
+        let pathExtension = url.pathExtension
+        var counter = 1
+        
+        while true {
+            let fileName = pathExtension.isEmpty ? "\(baseName) \(counter)" : "\(baseName) \(counter).\(pathExtension)"
+            let candidate = directory.appendingPathComponent(fileName)
+            if !FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            counter += 1
+        }
+    }
+    
+    private func publishTransferResult(action: String, succeeded: Int, failed: Int, skipped: Int) {
+        Logger.shared.logBatchOperation(action, successCount: succeeded, failCount: failed)
+        
+        if failed > 0 {
+            errorMessage = "\(action)完成：成功 \(succeeded) 个，失败 \(failed) 个，跳过 \(skipped) 个。"
+        }
+        
+        guard succeeded > 0 || failed > 0 || skipped > 0 else { return }
+        sendNotification(
+            title: "\(action)完成",
+            body: "成功 \(succeeded) 个，失败 \(failed) 个，跳过 \(skipped) 个"
         )
     }
     
@@ -598,10 +789,12 @@ final class MTPViewModel: ObservableObject {
     }
     
     private func sendNotification(title: String, body: String) {
+        guard AppSettings.shared.showNotificationOnComplete else { return }
+        
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = .default
+        content.sound = AppSettings.shared.playSoundOnComplete ? .default : nil
         
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,

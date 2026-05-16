@@ -61,13 +61,6 @@ struct MTPApp: App {
                     commandCenter.deleteSelected()
                 }
                 .keyboardShortcut(.delete, modifiers: .command)
-                
-                Divider()
-                
-                Button(commandCenter.isTransferQueueVisible ? "隐藏传输队列" : "显示传输队列") {
-                    commandCenter.toggleTransferQueue()
-                }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
             }
             
             // 自定义应用菜单（只保留一个"关于"）

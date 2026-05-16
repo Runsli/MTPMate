@@ -25,7 +25,6 @@ struct SettingsView: View {
                 
                 Toggle("显示状态栏", isOn: $settings.showStatusBar)
                 Toggle("显示隐藏文件", isOn: $settings.showHiddenFiles)
-                Toggle("启动时显示传输队列", isOn: $settings.showTransferQueue)
             }
             
             Section("传输") {

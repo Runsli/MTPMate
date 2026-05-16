@@ -13,19 +13,12 @@ import Combine
 final class AppCommandCenter: ObservableObject {
     static let shared = AppCommandCenter()
     
-    @Published var isTransferQueueVisible: Bool = AppSettings.shared.showTransferQueue
-    
     private weak var viewModel: MTPViewModel?
     
     private init() {}
     
     func register(viewModel: MTPViewModel) {
         self.viewModel = viewModel
-    }
-    
-    func toggleTransferQueue() {
-        isTransferQueueVisible.toggle()
-        AppSettings.shared.showTransferQueue = isTransferQueueVisible
     }
     
     func refresh() {

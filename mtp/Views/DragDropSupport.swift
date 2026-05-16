@@ -89,24 +89,14 @@ import SwiftUI
     func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL, completionHandler: @escaping (Error?) -> Void) {
         print("📥 开始下载文件到: \(url.path)")
         
-        // 使用 DispatchQueue 避免拖拽重入问题
-        DispatchQueue.main.async { [weak viewModel, file] in
-            guard let viewModel = viewModel,
-                  let deviceId = viewModel.selectedDevice?.id else {
-                completionHandler(NSError(domain: "MTP", code: -1, userInfo: [NSLocalizedDescriptionKey: "未选择设备"]))
-                return
+        Task { @MainActor [viewModel, file] in
+            do {
+                try await viewModel.downloadPromisedFile(file, to: url)
+                print("✅ 文件已下载: \(url.path)")
+                completionHandler(nil)
+            } catch {
+                completionHandler(error)
             }
-            
-            // 添加到传输队列
-            TransferQueueManager.shared.addDownloadTask(
-                deviceId: deviceId,
-                file: file,
-                destinationURL: url,
-                conflictResolution: .rename
-            )
-            
-            print("✅ 文件已添加到传输队列: \(url.path)")
-            completionHandler(nil)
         }
     }
     
@@ -135,24 +125,17 @@ import SwiftUI
     func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL, completionHandler: @escaping (Error?) -> Void) {
         print("📥 批量下载 \(files.count) 个文件到: \(url.path)")
         
-        // 使用 DispatchQueue 避免拖拽重入问题
-        DispatchQueue.main.async { [weak viewModel, files] in
-            guard let viewModel = viewModel,
-                  let deviceId = viewModel.selectedDevice?.id else {
-                completionHandler(NSError(domain: "MTP", code: -1, userInfo: [NSLocalizedDescriptionKey: "未选择设备"]))
-                return
+        Task { @MainActor [viewModel, files] in
+            do {
+                for file in files {
+                    let destinationURL = url.appendingPathComponent(file.name)
+                    try await viewModel.downloadPromisedFile(file, to: destinationURL)
+                }
+                print("✅ \(files.count) 个文件已下载")
+                completionHandler(nil)
+            } catch {
+                completionHandler(error)
             }
-            
-            // 批量添加到传输队列
-            TransferQueueManager.shared.addDownloadTasks(
-                deviceId: deviceId,
-                files: files,
-                destinationURL: url,
-                conflictResolution: .ask
-            )
-            
-            print("✅ \(files.count) 个文件已添加到传输队列")
-            completionHandler(nil)
         }
     }
     

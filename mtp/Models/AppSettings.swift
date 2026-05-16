@@ -30,7 +30,6 @@ final class AppSettings: ObservableObject {
     @AppStorage("showNotificationOnComplete") var showNotificationOnComplete: Bool = true
     @AppStorage("fileViewMode") var fileViewModeRaw: String = FileViewMode.list.rawValue
     @AppStorage("showStatusBar") var showStatusBar: Bool = true  // 显示状态栏
-    @AppStorage("showTransferQueue") var showTransferQueue: Bool = false
     @AppStorage("showHiddenFiles") var showHiddenFiles: Bool = false
     @AppStorage("useDefaultDownloadDirectory") var useDefaultDownloadDirectory: Bool = false
     @AppStorage("defaultDownloadDirectoryPath") var defaultDownloadDirectoryPath: String = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.path ?? ""

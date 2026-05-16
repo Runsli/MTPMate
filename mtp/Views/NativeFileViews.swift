@@ -140,21 +140,19 @@ struct NativeIconView: NSViewRepresentable {
             guard indexPath.item < files.count else { return nil }
             
             let file = files[indexPath.item]
-            guard !file.isDirectory else { return nil }
-            
             return FilePromiseProvider(viewModel: viewModel, file: file)
         }
         
         func collectionView(_ collectionView: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>, with event: NSEvent) -> Bool {
             indexPaths.contains { indexPath in
-                indexPath.item < files.count && !files[indexPath.item].isDirectory
+                indexPath.item < files.count
             }
         }
         
         func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItemsAt indexPaths: Set<IndexPath>) {
             let draggedIds = Set<String>(indexPaths.compactMap { indexPath in
                 guard indexPath.item < files.count else { return nil }
-                return files[indexPath.item].isDirectory ? nil : files[indexPath.item].id
+                return files[indexPath.item].id
             })
             
             if !draggedIds.isEmpty {

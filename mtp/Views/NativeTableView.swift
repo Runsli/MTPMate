@@ -311,8 +311,6 @@ struct NativeTableView: NSViewRepresentable {
             guard row < sortedFiles.count else { return nil }
             let file = sortedFiles[row]
             
-            guard !file.isDirectory else { return nil }
-            
             return FilePromiseProvider(viewModel: viewModel, file: file)
         }
         
@@ -320,7 +318,7 @@ struct NativeTableView: NSViewRepresentable {
             let sortedFiles = sortedFiles()
             let draggedIds = Set<String>(rowIndexes.compactMap { index in
                 guard index < sortedFiles.count else { return nil }
-                return sortedFiles[index].isDirectory ? nil : sortedFiles[index].id
+                return sortedFiles[index].id
             })
             
             if !draggedIds.isEmpty {

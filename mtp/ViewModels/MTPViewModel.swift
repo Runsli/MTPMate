@@ -513,20 +513,57 @@ final class MTPViewModel: ObservableObject {
         publishTransferResult(action: "上传", succeeded: succeeded, failed: failed.count, skipped: skipped)
     }
     
-    /// 下载单个文件给 NSFilePromiseProvider。completion 会等真实下载完成后再回调，让 Finder 使用系统进度。
-    func downloadPromisedFile(_ file: FileItem, to destinationURL: URL) async throws {
+    /// 下载单个项目给 NSFilePromiseProvider。completion 会等真实下载完成后再回调，让 Finder 使用系统进度。
+    func downloadPromisedItem(_ item: FileItem, to destinationURL: URL) async throws {
         guard let device = selectedDevice else {
             throw MTPError.deviceNotFound
         }
         
         let finalURL = uniqueLocalURL(for: destinationURL)
+        
+        if item.isDirectory {
+            try FileManager.default.createDirectory(at: finalURL, withIntermediateDirectories: true)
+            try await downloadFolderContents(item, deviceId: device.id, to: finalURL)
+            return
+        }
+        
         try await fileManager.downloadFile(
             deviceId: device.id,
-            fileId: file.id,
-            fileName: file.name,
+            fileId: item.id,
+            fileName: item.name,
             to: finalURL,
             progress: { _ in }
         )
+    }
+    
+    /// 下载单个文件给 NSFilePromiseProvider。completion 会等真实下载完成后再回调，让 Finder 使用系统进度。
+    func downloadPromisedFile(_ file: FileItem, to destinationURL: URL) async throws {
+        guard !file.isDirectory else { return }
+        
+        try await downloadPromisedItem(file, to: destinationURL)
+    }
+    
+    private func downloadFolderContents(_ folder: FileItem, deviceId: String, to destinationURL: URL) async throws {
+        let children = try await fileManager.listFiles(deviceId: deviceId, parentId: folder.id)
+        
+        for child in children {
+            let childURL = destinationURL.appendingPathComponent(child.name, isDirectory: child.isDirectory)
+            
+            if child.isDirectory {
+                let finalChildURL = uniqueLocalURL(for: childURL)
+                try FileManager.default.createDirectory(at: finalChildURL, withIntermediateDirectories: true)
+                try await downloadFolderContents(child, deviceId: deviceId, to: finalChildURL)
+            } else {
+                let finalChildURL = uniqueLocalURL(for: childURL)
+                try await fileManager.downloadFile(
+                    deviceId: deviceId,
+                    fileId: child.id,
+                    fileName: child.name,
+                    to: finalChildURL,
+                    progress: { _ in }
+                )
+            }
+        }
     }
     
     private func downloadFiles(

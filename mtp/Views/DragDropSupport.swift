@@ -12,6 +12,10 @@ import UniformTypeIdentifiers
 
 private enum FilePromiseType {
     static func identifier(for file: FileItem) -> String {
+        if file.isDirectory {
+            return UTType.folder.identifier
+        }
+        
         guard !file.fileExtension.isEmpty,
               let type = UTType(filenameExtension: file.fileExtension) else {
             return UTType.data.identifier
@@ -93,12 +97,12 @@ private enum FilePromiseType {
     }
     
     func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL, completionHandler: @escaping (Error?) -> Void) {
-        let destinationURL = url.appendingPathComponent(file.name, isDirectory: false)
+        let destinationURL = url.appendingPathComponent(file.name, isDirectory: file.isDirectory)
         print("📥 开始下载文件到: \(destinationURL.path)")
         
         Task { @MainActor [viewModel, file] in
             do {
-                try await viewModel.downloadPromisedFile(file, to: destinationURL)
+                try await viewModel.downloadPromisedItem(file, to: destinationURL)
                 print("✅ 文件已下载: \(destinationURL.path)")
                 completionHandler(nil)
             } catch {
@@ -135,8 +139,8 @@ private enum FilePromiseType {
         Task { @MainActor [viewModel, files] in
             do {
                 for file in files {
-                    let destinationURL = url.appendingPathComponent(file.name)
-                    try await viewModel.downloadPromisedFile(file, to: destinationURL)
+                    let destinationURL = url.appendingPathComponent(file.name, isDirectory: file.isDirectory)
+                    try await viewModel.downloadPromisedItem(file, to: destinationURL)
                 }
                 print("✅ \(files.count) 个文件已下载")
                 completionHandler(nil)

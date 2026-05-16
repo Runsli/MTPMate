@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 用户选择的文件读写权限 -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	
+	<!-- 下载文件夹访问权限 -->
+	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
+	
+	<!-- 网络客户端（如果需要） -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	
+	<!-- USB 设备访问权限 -->
+	<key>com.apple.security.device.usb</key>
+	<true/>
+	
+	<!-- libmtp 底层 IOKit 访问权限 -->
+	<key>com.apple.security.temporary-exception.iokit-user-client-class</key>
+	<array>
+		<string>IOUSBDeviceUserClientV2</string>
+		<string>IOUSBInterfaceUserClientV2</string>
+	</array>
+</dict>
+</plist>

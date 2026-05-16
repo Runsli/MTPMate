@@ -6,75 +6,45 @@
 //
 
 import SwiftUI
-import SwiftData
+import Combine
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
-
+    @StateObject private var viewModel = MTPViewModel()
+    @State private var showingDualPane = false
+    
     var body: some View {
-        NavigationViewWrapper {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-#if os(macOS)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-#endif
-            .toolbar {
-#if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-#endif
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
+        Group {
+            if showingDualPane {
+                DualPaneView(viewModel: viewModel)
+            } else {
+                NavigationSplitView {
+                    DeviceListView(viewModel: viewModel)
+                } detail: {
+                    FileListView(viewModel: viewModel)
                 }
             }
         }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+        .navigationTitle("MTP 文件管理器")
+        .frame(minWidth: showingDualPane ? 1000 : 900, minHeight: 600)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: {
+                    showingDualPane.toggle()
+                }) {
+                    Label(
+                        showingDualPane ? "单栏模式" : "双栏模式",
+                        systemImage: showingDualPane ? "sidebar.left" : "rectangle.split.2x1"
+                    )
+                }
+                .help(showingDualPane ? "切换到单栏模式" : "切换到双栏模式，方便与访达传输文件")
             }
         }
-    }
-}
-
-fileprivate struct NavigationViewWrapper<Content: View>: View {
-    let content: () -> Content
-
-    var body: some View {
-#if os(macOS)
-        NavigationSplitView {
-            content()
-        } detail: {
-            Text("Select an item")
+        .task {
+            await viewModel.scanDevices()
         }
-#else
-        content()
-#endif
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }

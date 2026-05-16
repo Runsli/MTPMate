@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+	<key>CFBundleDisplayName</key>
+	<string>MTP 文件管理器</string>
+	<key>CFBundleName</key>
+	<string>MTP 文件管理器</string>
+	<key>NSUserNotificationAlertStyle</key>
+	<string>alert</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>需要通知权限以便在文件传输完成时提醒您</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>需要访问 USB 设备以管理 MTP 文件</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>需要访问可移动设备以传输文件</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+</dict>
+</plist>

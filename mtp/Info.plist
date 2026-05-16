@@ -5,9 +5,9 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
 	<key>CFBundleDisplayName</key>
-	<string>MTP 文件管理器</string>
+	<string>MTPMate</string>
 	<key>CFBundleName</key>
-	<string>MTP 文件管理器</string>
+	<string>MTPMate</string>
 	<key>NSUserNotificationAlertStyle</key>
 	<string>alert</string>
 	<key>NSUserNotificationsUsageDescription</key>

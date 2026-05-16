@@ -22,7 +22,7 @@ struct MTPApp: App {
             
             // 自定义应用菜单（只保留一个"关于"）
             CommandGroup(replacing: .appInfo) {
-                Button("关于 MTP 文件管理器") {
+                Button("关于 MTPMate") {
                     showAboutPanel()
                 }
                 
@@ -36,8 +36,8 @@ struct MTPApp: App {
             
             // 移除帮助菜单中的重复"关于"
             CommandGroup(replacing: .help) {
-                Link("使用文档", destination: URL(string: "https://github.com/runsli/mtp")!)
-                Link("报告问题", destination: URL(string: "https://github.com/runsli/mtp/issues")!)
+                Link("使用文档", destination: URL(string: "https://github.com/runsli/MTPMate")!)
+                Link("报告问题", destination: URL(string: "https://github.com/runsli/MTPMate/issues")!)
             }
         }
         
@@ -48,7 +48,7 @@ struct MTPApp: App {
     
     private func showAboutPanel() {
         let alert = NSAlert()
-        alert.messageText = "MTP 文件管理器"
+        alert.messageText = "MTPMate"
         alert.informativeText = "版本 1.0.0\n\n适用于 macOS 的 Android 设备文件传输工具"
         alert.alertStyle = .informational
         alert.addButton(withTitle: "确定")

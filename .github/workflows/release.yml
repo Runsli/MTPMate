@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and publish macOS release
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install libmtp libusb
+
+          # The Xcode project currently points to Apple Silicon Homebrew paths.
+          # Mirror the runner's Homebrew prefix there so Intel and Apple Silicon
+          # runners can build the same project file.
+          sudo mkdir -p /opt/homebrew/opt
+          sudo ln -sfn "$(brew --prefix libmtp)" /opt/homebrew/opt/libmtp
+          sudo ln -sfn "$(brew --prefix libusb)" /opt/homebrew/opt/libusb
+
+      - name: Build MTPMate
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${TAG_NAME#v}"
+          BUILD_ARCH="$(uname -m)"
+          xcodebuild \
+            -project mtp.xcodeproj \
+            -scheme mtp \
+            -configuration Release \
+            -derivedDataPath DerivedData \
+            -destination "generic/platform=macOS" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
+            ARCHS="$BUILD_ARCH" \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Package app
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${TAG_NAME#v}"
+          BUILD_ARCH="$(uname -m)"
+          APP_PATH="DerivedData/Build/Products/Release/MTPMate.app"
+          ZIP_NAME="MTPMate-${VERSION}-macOS-${BUILD_ARCH}.zip"
+
+          test -d "$APP_PATH"
+          ditto -c -k --keepParent "$APP_PATH" "$ZIP_NAME"
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_ARCH=$BUILD_ARCH" >> "$GITHUB_ENV"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${ZIP_NAME}"
+
+          gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="${TAG_NAME}" \
+            --jq ".body" > generated-notes.md
+
+          {
+            echo "## 下载"
+            echo
+            echo "- [MTPMate ${VERSION} for macOS ${BUILD_ARCH}](${DOWNLOAD_URL})"
+            echo
+            echo "## 更新日志"
+            echo
+            cat generated-notes.md
+          } > release-notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release create "${TAG_NAME}" "${ZIP_NAME}" \
+            --title "MTPMate ${VERSION}" \
+            --notes-file release-notes.md

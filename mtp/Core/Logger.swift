@@ -13,7 +13,7 @@ final class Logger {
     static let shared = Logger()
     
     // 使用 OSLog 进行结构化日志记录
-    private static let subsystem = "io.github.runsli.mtp"
+    private static let subsystem = "com.runsli.mtpmate"
     private let mtpLogger = os.Logger(subsystem: Logger.subsystem, category: "MTP")
     private let fileLogger = os.Logger(subsystem: Logger.subsystem, category: "FileOperation")
     private let usbLogger = os.Logger(subsystem: Logger.subsystem, category: "USB")
@@ -74,7 +74,7 @@ final class Logger {
     
     private var lastLogTime: [String: Date] = [:]
     private let minLogInterval: TimeInterval = 1.0 // 最小日志间隔（秒）
-    private let queue = DispatchQueue(label: "com.mtp.logger", qos: .utility)
+    private let queue = DispatchQueue(label: "com.runsli.mtpmate.logger", qos: .utility)
     
     private init() {}
     

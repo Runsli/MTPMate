@@ -24,7 +24,7 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle("MTP 文件管理器")
+        .navigationTitle("MTPMate")
         .frame(minWidth: showingDualPane ? 1000 : 900, minHeight: 600)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

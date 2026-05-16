@@ -34,12 +34,17 @@ jobs:
           brew list libmtp >/dev/null 2>&1 || brew install libmtp
           brew list libusb >/dev/null 2>&1 || brew install libusb
 
-          # The Xcode project currently points to Apple Silicon Homebrew paths.
-          # Mirror the runner's Homebrew prefix there so Intel and Apple Silicon
-          # runners can build the same project file.
-          sudo mkdir -p /opt/homebrew/opt
-          sudo ln -sfn "$(brew --prefix libmtp)" /opt/homebrew/opt/libmtp
-          sudo ln -sfn "$(brew --prefix libusb)" /opt/homebrew/opt/libusb
+          LIBMTP_PREFIX="$(brew --prefix libmtp)"
+          LIBUSB_PREFIX="$(brew --prefix libusb)"
+
+          test -f "${LIBMTP_PREFIX}/include/libmtp.h"
+          test -d "${LIBUSB_PREFIX}/include/libusb-1.0"
+
+          echo "LIBMTP_PREFIX=${LIBMTP_PREFIX}" >> "$GITHUB_ENV"
+          echo "LIBUSB_PREFIX=${LIBUSB_PREFIX}" >> "$GITHUB_ENV"
+
+          echo "libmtp prefix: ${LIBMTP_PREFIX}"
+          echo "libusb prefix: ${LIBUSB_PREFIX}"
 
       - name: Build MTPMate
         env:
@@ -61,6 +66,10 @@ jobs:
             ARCHS="$BUILD_ARCH" \
             ONLY_ACTIVE_ARCH=YES \
             ENABLE_PREVIEWS=NO \
+            HEADER_SEARCH_PATHS="${LIBMTP_PREFIX}/include ${LIBUSB_PREFIX}/include/libusb-1.0" \
+            LIBRARY_SEARCH_PATHS="${LIBMTP_PREFIX}/lib ${LIBUSB_PREFIX}/lib" \
+            OTHER_CFLAGS="-I${LIBMTP_PREFIX}/include -I${LIBUSB_PREFIX}/include/libusb-1.0" \
+            OTHER_LDFLAGS="-L${LIBMTP_PREFIX}/lib -L${LIBUSB_PREFIX}/lib -lmtp -lusb-1.0 -Wl,-w" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \

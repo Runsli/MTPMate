@@ -145,6 +145,7 @@ struct NativeOutlineView: NSViewRepresentable {
     }
     
     // MARK: - Coordinator
+    @MainActor
     class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         var viewModel: MTPViewModel
         var rootFiles: [FileItem]

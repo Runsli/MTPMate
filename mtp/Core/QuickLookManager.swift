@@ -112,7 +112,7 @@ final class QuickLookManager: NSObject {
             return nil
         }
         
-        guard let device = viewModel.selectedDevice else {
+        guard let device = await viewModel.selectedDevice else {
             print("❌ QuickLookManager: 未选择设备")
             return nil
         }

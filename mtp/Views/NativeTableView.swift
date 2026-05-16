@@ -120,6 +120,7 @@ struct NativeTableView: NSViewRepresentable {
     }
     
     // MARK: - Coordinator
+    @MainActor
     class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         var viewModel: MTPViewModel
         var files: [FileItem]

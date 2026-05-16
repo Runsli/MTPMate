@@ -101,6 +101,7 @@ struct NativeListView: NSViewRepresentable {
         Coordinator(viewModel: viewModel, files: files)
     }
     
+    @MainActor
     class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         var viewModel: MTPViewModel
         var files: [FileItem]
@@ -424,6 +425,7 @@ struct NativeIconView: NSViewRepresentable {
         Coordinator(viewModel: viewModel, files: files)
     }
     
+    @MainActor
     class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
         var viewModel: MTPViewModel
         var files: [FileItem]
@@ -942,6 +944,7 @@ struct NativeBrowserListView: NSViewRepresentable {
         Coordinator(viewModel: viewModel, files: files)
     }
     
+    @MainActor
     class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
         var viewModel: MTPViewModel
         var files: [FileItem]

@@ -8,6 +8,18 @@
 import Foundation
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+private enum FilePromiseType {
+    static func identifier(for file: FileItem) -> String {
+        guard !file.fileExtension.isEmpty,
+              let type = UTType(filenameExtension: file.fileExtension) else {
+            return UTType.data.identifier
+        }
+        
+        return type.identifier
+    }
+}
 
 // MARK: - 文件 Promise Provider
 @objc class FilePromiseProvider: NSFilePromiseProvider {
@@ -22,16 +34,8 @@ import SwiftUI
         self.file = file
         self.promiseDelegate = promiseDelegate
         
-        // 设置文件类型
-        let fileType: String
-        if file.fileExtension.isEmpty {
-            fileType = "public.data"
-        } else {
-            fileType = "public.\(file.fileExtension)"
-        }
-        
         super.init()
-        self.fileType = fileType
+        self.fileType = FilePromiseType.identifier(for: file)
         self.delegate = promiseDelegate
     }
     
@@ -39,8 +43,9 @@ import SwiftUI
         fatalError("init(coder:) has not been implemented")
     }
     
+    @available(*, unavailable, message: "Use init(viewModel:file:) instead.")
     override init() {
-        super.init()
+        fatalError("init() has not been implemented")
     }
 }
 
@@ -58,7 +63,7 @@ import SwiftUI
         self.promiseDelegate = promiseDelegate
         
         super.init()
-        self.fileType = "public.data"
+        self.fileType = UTType.data.identifier
         self.delegate = promiseDelegate
     }
     
@@ -66,8 +71,9 @@ import SwiftUI
         fatalError("init(coder:) has not been implemented")
     }
     
+    @available(*, unavailable, message: "Use init(viewModel:files:) instead.")
     override init() {
-        super.init()
+        fatalError("init() has not been implemented")
     }
 }
 
@@ -87,12 +93,13 @@ import SwiftUI
     }
     
     func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL, completionHandler: @escaping (Error?) -> Void) {
-        print("📥 开始下载文件到: \(url.path)")
+        let destinationURL = url.appendingPathComponent(file.name, isDirectory: false)
+        print("📥 开始下载文件到: \(destinationURL.path)")
         
         Task { @MainActor [viewModel, file] in
             do {
-                try await viewModel.downloadPromisedFile(file, to: url)
-                print("✅ 文件已下载: \(url.path)")
+                try await viewModel.downloadPromisedFile(file, to: destinationURL)
+                print("✅ 文件已下载: \(destinationURL.path)")
                 completionHandler(nil)
             } catch {
                 completionHandler(error)

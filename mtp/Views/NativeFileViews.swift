@@ -59,6 +59,7 @@ struct NativeIconView: NSViewRepresentable {
         
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
+        collectionView.setDraggingSourceOperationMask(.copy, forLocal: false)
         
         scrollView.documentView = collectionView
         scrollView.hasVerticalScroller = true
@@ -133,6 +134,15 @@ struct NativeIconView: NSViewRepresentable {
             }
             
             return item
+        }
+        
+        func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
+            guard indexPath.item < files.count else { return nil }
+            
+            let file = files[indexPath.item]
+            guard !file.isDirectory else { return nil }
+            
+            return FilePromiseProvider(viewModel: viewModel, file: file)
         }
         
         func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {

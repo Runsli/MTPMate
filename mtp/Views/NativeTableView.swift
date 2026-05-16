@@ -316,6 +316,18 @@ struct NativeTableView: NSViewRepresentable {
             return FilePromiseProvider(viewModel: viewModel, file: file)
         }
         
+        func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
+            let sortedFiles = sortedFiles()
+            let draggedIds = Set<String>(rowIndexes.compactMap { index in
+                guard index < sortedFiles.count else { return nil }
+                return sortedFiles[index].isDirectory ? nil : sortedFiles[index].id
+            })
+            
+            if !draggedIds.isEmpty {
+                viewModel.selectedFiles = draggedIds
+            }
+        }
+        
         // MARK: - 拖放（拖入）
         func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
             // 只接受从外部拖入的文件

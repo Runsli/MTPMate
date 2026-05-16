@@ -50,7 +50,10 @@ jobs:
             CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
             ARCHS="$BUILD_ARCH" \
             ONLY_ACTIVE_ARCH=YES \
-            CODE_SIGN_IDENTITY="-" \
+            ENABLE_PREVIEWS=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="" \
             build

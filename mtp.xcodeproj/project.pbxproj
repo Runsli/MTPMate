@@ -400,6 +400,7 @@
 					/opt/homebrew/opt/libmtp/include,
 					"/opt/homebrew/opt/libusb/include/libusb-1.0",
 				);
+				INFOPLIST_KEY_CFBundleDisplayName = MTPMate;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -458,6 +459,7 @@
 					/opt/homebrew/opt/libmtp/include,
 					"/opt/homebrew/opt/libusb/include/libusb-1.0",
 				);
+				INFOPLIST_KEY_CFBundleDisplayName = MTPMate;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

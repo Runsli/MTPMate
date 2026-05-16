@@ -49,10 +49,21 @@ struct MTPApp: App {
     private func showAboutPanel() {
         let alert = NSAlert()
         alert.messageText = "MTPMate"
-        alert.informativeText = "版本 1.0.0\n\n适用于 macOS 的 Android 设备文件传输工具"
+        alert.informativeText = "版本 \(appVersionText)\n\n适用于 macOS 的 Android 设备文件传输工具"
         alert.alertStyle = .informational
         alert.addButton(withTitle: "确定")
         alert.runModal()
+    }
+    
+    private var appVersionText: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        
+        if let build, !build.isEmpty, build != version {
+            return "\(version) (\(build))"
+        }
+        
+        return version
     }
     
     private func openSettings() {

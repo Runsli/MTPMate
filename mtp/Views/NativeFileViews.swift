@@ -9,6 +9,10 @@ import SwiftUI
 import AppKit
 
 private enum NativeFileIconProvider {
+    static let iconGridIconSize = NSSize(width: 64, height: 64)
+    static let iconGridItemSize = NSSize(width: 112, height: 124)
+    static let iconGridNameWidth: CGFloat = 104
+    
     static func icon(for file: FileItem, size: NSSize) -> NSImage {
         let icon: NSImage
         
@@ -36,9 +40,9 @@ struct NativeIconView: NSViewRepresentable {
         
         // 配置集合视图布局
         let flowLayout = NSCollectionViewFlowLayout()
-        flowLayout.itemSize = NSSize(width: 80, height: 100)
-        flowLayout.minimumInteritemSpacing = 20
-        flowLayout.minimumLineSpacing = 20
+        flowLayout.itemSize = NativeFileIconProvider.iconGridItemSize
+        flowLayout.minimumInteritemSpacing = 24
+        flowLayout.minimumLineSpacing = 22
         flowLayout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
         
         collectionView.collectionViewLayout = flowLayout
@@ -190,12 +194,13 @@ class FileIconCollectionItem: NSCollectionViewItem {
         NSLayoutConstraint.activate([
             iconImageView.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
             iconImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            iconImageView.widthAnchor.constraint(equalToConstant: 48),
-            iconImageView.heightAnchor.constraint(equalToConstant: 48),
+            iconImageView.widthAnchor.constraint(equalToConstant: NativeFileIconProvider.iconGridIconSize.width),
+            iconImageView.heightAnchor.constraint(equalToConstant: NativeFileIconProvider.iconGridIconSize.height),
             
-            nameLabel.topAnchor.constraint(equalTo: iconImageView.bottomAnchor, constant: 4),
+            nameLabel.topAnchor.constraint(equalTo: iconImageView.bottomAnchor, constant: 8),
             nameLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
             nameLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
+            nameLabel.widthAnchor.constraint(lessThanOrEqualToConstant: NativeFileIconProvider.iconGridNameWidth),
             nameLabel.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -4)
         ])
         
@@ -210,7 +215,7 @@ class FileIconCollectionItem: NSCollectionViewItem {
     }
     
     func configure(with file: FileItem) {
-        iconImageView.image = NativeFileIconProvider.icon(for: file, size: NSSize(width: 48, height: 48))
+        iconImageView.image = NativeFileIconProvider.icon(for: file, size: NativeFileIconProvider.iconGridIconSize)
         iconImageView.contentTintColor = nil
         nameLabel.stringValue = file.name
     }

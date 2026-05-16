@@ -157,7 +157,6 @@ struct DeviceFilePane: View {
     let isActive: Bool
     @State private var searchText = ""
     @State private var selectedFilterOption: FilterOption = .all
-    @State private var sortOrder: [KeyPathComparator<FileItem>] = []
     @State private var visibleFiles: [FileItem] = []
     
     enum FilterOption: String, CaseIterable {
@@ -223,11 +222,9 @@ struct DeviceFilePane: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    DeviceFileTable(
+                    NativeTableView(
                         viewModel: viewModel,
-                        files: visibleFiles,
-                        sortOrder: sortOrderBinding,
-                        isActive: isActive
+                        files: visibleFiles
                     )
                 }
             }
@@ -244,24 +241,11 @@ struct DeviceFilePane: View {
         }
     }
     
-    private var sortOrderBinding: Binding<[KeyPathComparator<FileItem>]> {
-        Binding {
-            sortOrder
-        } set: { newValue in
-            sortOrder = newValue
-            refreshVisibleFiles(using: newValue)
-        }
-    }
-    
     private func refreshVisibleFiles() {
-        refreshVisibleFiles(using: sortOrder)
+        visibleFiles = filteredAndSortedFiles()
     }
     
-    private func refreshVisibleFiles(using sortOrder: [KeyPathComparator<FileItem>]) {
-        visibleFiles = filteredAndSortedFiles(using: sortOrder)
-    }
-    
-    private func filteredAndSortedFiles(using sortOrder: [KeyPathComparator<FileItem>]) -> [FileItem] {
+    private func filteredAndSortedFiles() -> [FileItem] {
         var files = viewModel.currentFiles
         
         // 搜索过滤
@@ -285,23 +269,11 @@ struct DeviceFilePane: View {
             files = files.filter { $0.isDirectory }
         }
         
-        if !sortOrder.isEmpty {
-            files.sort { file1, file2 in
-                for comparator in sortOrder {
-                    let result = comparator.compare(file1, file2)
-                    if result != .orderedSame {
-                        return result == .orderedAscending
-                    }
-                }
-                return false
+        files.sort { file1, file2 in
+            if file1.isDirectory != file2.isDirectory {
+                return file1.isDirectory && !file2.isDirectory
             }
-        } else {
-            files.sort { file1, file2 in
-                if file1.isDirectory != file2.isDirectory {
-                    return file1.isDirectory && !file2.isDirectory
-                }
-                return file1.name.localizedCaseInsensitiveCompare(file2.name) == .orderedAscending
-            }
+            return file1.name.localizedCaseInsensitiveCompare(file2.name) == .orderedAscending
         }
         
         return files
@@ -360,81 +332,6 @@ struct DeviceSelectionView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
-    }
-}
-
-// MARK: - Device File Table
-struct DeviceFileTable: View {
-    @ObservedObject var viewModel: MTPViewModel
-    let files: [FileItem]
-    @Binding var sortOrder: [KeyPathComparator<FileItem>]
-    let isActive: Bool
-    
-    var body: some View {
-        Table(files, selection: $viewModel.selectedFiles, sortOrder: $sortOrder) {
-            TableColumn("名称", value: \.name) { file in
-                HStack(spacing: 8) {
-                    Image(systemName: file.icon)
-                        .foregroundColor(file.isDirectory ? .blue : .secondary)
-                    Text(file.name)
-                        .lineLimit(1)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2) {
-                    if file.isDirectory {
-                        viewModel.navigateToFolder(file)
-                    }
-                }
-            }
-            .width(min: 150, ideal: 200)
-            
-            TableColumn("大小", value: \.size) { file in
-                Text(file.isDirectory ? "—" : file.formattedSize)
-                    .foregroundColor(.secondary)
-            }
-            .width(min: 60, ideal: 80)
-            
-            TableColumn("修改时间", value: \.modifiedDate) { file in
-                Text(file.modifiedDate, style: .date)
-                    .foregroundColor(.secondary)
-            }
-            .width(min: 80, ideal: 100)
-        }
-        .contextMenu {
-            if !viewModel.selectedFiles.isEmpty {
-                // 如果选中单个文件，显示快速查看选项
-                if viewModel.selectedFiles.count == 1,
-                   let selectedFile = files.first(where: { viewModel.selectedFiles.contains($0.id) }),
-                   !selectedFile.isDirectory {
-                    Button("快速查看") {
-                        viewModel.previewSelectedFiles()
-                    }
-                    .keyboardShortcut(.space, modifiers: [])
-                    
-                    Divider()
-                }
-                
-                Button("传输到本地") {
-                    // 这个功能由父视图处理
-                }
-                .keyboardShortcut(.rightArrow, modifiers: .command)
-                
-                Divider()
-            }
-            
-            Button("刷新") {
-                Task {
-                    guard let currentComponent = viewModel.pathComponents.last else { return }
-                    await viewModel.loadFiles(folderId: currentComponent.folderId)
-                }
-            }
-            .keyboardShortcut("r", modifiers: .command)
-        }
-        .onKeyPress(.space) {
-            // 空格键预览文件
-            viewModel.previewSelectedFiles()
-            return .handled
-        }
     }
 }
 

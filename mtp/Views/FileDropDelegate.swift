@@ -7,7 +7,6 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
-import UserNotifications
 
 struct FileDropDelegate: DropDelegate {
     let viewModel: MTPViewModel
@@ -55,67 +54,25 @@ struct FileDropDelegate: DropDelegate {
     }
     
     private func handleDroppedFiles(urls: [URL]) {
-        guard let device = viewModel.selectedDevice else { return }
-        let currentFolderId = viewModel.pathComponents.last?.folderId
+        guard viewModel.selectedDevice != nil else { return }
         
         Task {
-            for url in urls {
+            let uploadableURLs = urls.filter { url in
                 var isDirectory: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
+                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                    return false
+                }
                 
                 if isDirectory.boolValue {
-                    // 简化：暂时跳过文件夹拖拽，只支持文件
-                    print("⚠️ 跳过文件夹拖拽: \(url.lastPathComponent)")
-                    continue
-                } else {
-                    // 直接上传文件
-                    await uploadFile(deviceId: device.id, sourceURL: url, toParentId: currentFolderId)
+                    Logger.warning("跳过文件夹拖拽: \(url.lastPathComponent)")
+                    return false
                 }
+                
+                return true
             }
             
-            // 刷新文件列表
-            await viewModel.loadFiles(folderId: currentFolderId)
-        }
-    }
-    
-    private func uploadFile(deviceId: String, sourceURL: URL, toParentId parentId: String?) async {
-        do {
-            print("📤 拖拽上传: \(sourceURL.lastPathComponent)")
-            
-            let fileManager = MTPFileManager.shared
-            let newFileId = try await fileManager.uploadFile(
-                deviceId: deviceId,
-                sourceURL: sourceURL,
-                toParentId: parentId,
-                fileName: sourceURL.lastPathComponent,
-                progress: { _ in } // 简化：不显示进度
-            )
-            
-            print("✅ 拖拽上传完成: \(sourceURL.lastPathComponent) (新ID: \(newFileId))")
-            
-            // 发送系统通知
-            let content = UNMutableNotificationContent()
-            content.title = "上传完成"
-            content.body = sourceURL.lastPathComponent
-            content.sound = .default
-            
-            let request = UNNotificationRequest(
-                identifier: UUID().uuidString,
-                content: content,
-                trigger: nil
-            )
-            
-            do {
-                try await UNUserNotificationCenter.current().add(request)
-            } catch {
-                print("发送通知失败: \(error.localizedDescription)")
-            }
-            
-        } catch {
-            print("❌ 拖拽上传失败: \(sourceURL.lastPathComponent) - \(error)")
-            
-            await MainActor.run {
-                viewModel.errorMessage = "上传失败: \(error.localizedDescription)"
+            if !uploadableURLs.isEmpty {
+                await viewModel.uploadFiles(uploadableURLs)
             }
         }
     }

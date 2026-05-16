@@ -486,21 +486,6 @@ final class MTPViewModel: ObservableObject {
         )
     }
     
-    /// 同步下载文件（用于拖拽）
-    func downloadFileSync(deviceId: String, file: FileItem, to destinationURL: URL) async throws {
-        Logger.debug("同步下载: \(file.name)")
-        
-        try await fileManager.downloadFile(
-            deviceId: deviceId,
-            fileId: file.id,
-            fileName: file.name,
-            to: destinationURL,
-            progress: { _ in } // 简化：不显示进度
-        )
-        
-        Logger.info("同步下载完成: \(file.name)")
-    }
-    
     /// 上传指定的文件（用于双栏传输）
     func uploadFiles(_ urls: [URL]) async {
         guard let device = selectedDevice else { return }
@@ -514,91 +499,6 @@ final class MTPViewModel: ObservableObject {
             destinationParentId: currentFolderId,
             conflictResolution: AppSettings.shared.conflictResolution
         )
-    }
-    
-    private func downloadSingleFile(_ file: FileItem) {
-        guard let device = selectedDevice else { return }
-        
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = file.name
-        panel.prompt = "保存文件"
-        
-        if panel.runModal() == .OK, let url = panel.url {
-            Task {
-                await downloadFile(deviceId: device.id, file: file, to: url)
-            }
-        }
-    }
-    
-    private func downloadMultipleFiles(_ files: [FileItem]) {
-        guard let device = selectedDevice else { return }
-        
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "选择保存位置"
-        
-        if panel.runModal() == .OK, let url = panel.url {
-            Task {
-                for file in files {
-                    let destinationURL = url.appendingPathComponent(file.name)
-                    await downloadFile(deviceId: device.id, file: file, to: destinationURL)
-                }
-            }
-        }
-    }
-    
-    private func uploadFile(deviceId: String, sourceURL: URL, toParentId parentId: String?) async {
-        do {
-            Logger.debug("开始上传: \(sourceURL.lastPathComponent)")
-            
-            let newFileId = try await fileManager.uploadFile(
-                deviceId: deviceId,
-                sourceURL: sourceURL,
-                toParentId: parentId,
-                fileName: sourceURL.lastPathComponent,
-                progress: { _ in } // 简化：不显示进度
-            )
-            
-            Logger.info("上传完成: \(sourceURL.lastPathComponent) (新ID: \(newFileId))")
-            
-            // 发送系统通知
-            sendNotification(title: "上传完成", body: sourceURL.lastPathComponent)
-            
-        } catch {
-            Logger.error("上传失败: \(sourceURL.lastPathComponent) - \(error.localizedDescription)")
-            
-            await MainActor.run {
-                errorMessage = "上传失败: \(error.localizedDescription)"
-            }
-        }
-    }
-    
-    private func downloadFile(deviceId: String, file: FileItem, to destinationURL: URL) async {
-        do {
-            Logger.debug("开始下载: \(file.name)")
-            
-            try await fileManager.downloadFile(
-                deviceId: deviceId,
-                fileId: file.id,
-                fileName: file.name,
-                to: destinationURL,
-                progress: { _ in } // 简化：不显示进度
-            )
-            
-            Logger.info("下载完成: \(file.name)")
-            
-            // 发送系统通知
-            sendNotification(title: "下载完成", body: file.name)
-            
-        } catch {
-            Logger.error("下载失败: \(file.name) - \(error.localizedDescription)")
-            
-            await MainActor.run {
-                errorMessage = "下载失败: \(error.localizedDescription)"
-            }
-        }
     }
     
     // MARK: - 文件打开功能

@@ -8,352 +8,20 @@
 import SwiftUI
 import AppKit
 
-// MARK: - 原生列表视图（使用 NSTableView）
-struct NativeListView: NSViewRepresentable {
-    @ObservedObject var viewModel: MTPViewModel
-    let files: [FileItem]
-    
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        let tableView = QuickLookEnabledTableView() // 使用自定义 TableView
+private enum NativeFileIconProvider {
+    static func icon(for file: FileItem, size: NSSize) -> NSImage {
+        let icon: NSImage
         
-        // 配置表格视图
-        tableView.style = .fullWidth
-        tableView.rowSizeStyle = .default
-        tableView.usesAlternatingRowBackgroundColors = false // 访达默认不使用交替背景
-        tableView.allowsMultipleSelection = true
-        tableView.allowsColumnReordering = true
-        tableView.allowsColumnResizing = true
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
-        tableView.target = context.coordinator
-        tableView.coordinator = context.coordinator // 设置协调器引用
-        
-        // 添加列
-        let nameColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
-        nameColumn.title = "名称"
-        nameColumn.width = 300
-        nameColumn.minWidth = 200
-        tableView.addTableColumn(nameColumn)
-        
-        let dateColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("date"))
-        dateColumn.title = "修改时间"
-        dateColumn.width = 120
-        dateColumn.minWidth = 100
-        tableView.addTableColumn(dateColumn)
-        
-        let sizeColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("size"))
-        sizeColumn.title = "大小"
-        sizeColumn.width = 100
-        sizeColumn.minWidth = 80
-        tableView.addTableColumn(sizeColumn)
-        
-        let typeColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("type"))
-        typeColumn.title = "类型"
-        typeColumn.width = 100
-        typeColumn.minWidth = 80
-        tableView.addTableColumn(typeColumn)
-        
-        // 设置数据源和代理
-        tableView.dataSource = context.coordinator
-        tableView.delegate = context.coordinator
-        
-        // 启用拖拽
-        tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
-        
-        // 添加右键菜单
-        tableView.menu = context.coordinator.createContextMenu()
-        
-        scrollView.documentView = tableView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        
-        // 保存引用
-        context.coordinator.tableView = tableView
-        
-        return scrollView
-    }
-    
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let tableView = nsView.documentView as? NSTableView else { return }
-        
-        let needsReload = context.coordinator.files != files
-        context.coordinator.files = files
-        context.coordinator.viewModel = viewModel
-        
-        if needsReload {
-            tableView.reloadData()
-        }
-        
-        // 使用 DispatchQueue 避免布局递归
-        let selectedIndexes = IndexSet(files.enumerated().compactMap { index, file in
-            viewModel.selectedFiles.contains(file.id) ? index : nil
-        })
-        
-        if !selectedIndexes.isEmpty || !tableView.selectedRowIndexes.isEmpty {
-            DispatchQueue.main.async {
-                tableView.selectRowIndexes(selectedIndexes, byExtendingSelection: false)
-            }
-        }
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(viewModel: viewModel, files: files)
-    }
-    
-    @MainActor
-    class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-        var viewModel: MTPViewModel
-        var files: [FileItem]
-        weak var tableView: NSTableView?
-        
-        init(viewModel: MTPViewModel, files: [FileItem]) {
-            self.viewModel = viewModel
-            self.files = files
-        }
-        
-        func numberOfRows(in tableView: NSTableView) -> Int {
-            return files.count
-        }
-        
-        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-            guard row < files.count else { return nil }
-            let file = files[row]
-            
-            let cellView = NSTableCellView()
-            let textField = NSTextField()
-            textField.isBordered = false
-            textField.backgroundColor = .clear
-            textField.isEditable = false
-            textField.font = .systemFont(ofSize: 13)
-            
-            switch tableColumn?.identifier.rawValue {
-            case "name":
-                // 名称列：图标 + 文件名
-                let imageView = NSImageView()
-                imageView.image = NSImage(systemSymbolName: file.icon, accessibilityDescription: nil)
-                imageView.contentTintColor = file.isDirectory ? .systemBlue : iconColor(for: file)
-                imageView.translatesAutoresizingMaskIntoConstraints = false
-                
-                textField.stringValue = file.name
-                textField.translatesAutoresizingMaskIntoConstraints = false
-                
-                cellView.addSubview(imageView)
-                cellView.addSubview(textField)
-                
-                NSLayoutConstraint.activate([
-                    imageView.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
-                    imageView.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-                    imageView.widthAnchor.constraint(equalToConstant: 16),
-                    imageView.heightAnchor.constraint(equalToConstant: 16),
-                    
-                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
-                    textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
-                    textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
-                ])
-                
-            case "date":
-                let formatter = DateFormatter()
-                formatter.dateStyle = .medium
-                formatter.timeStyle = .none
-                textField.stringValue = formatter.string(from: file.modifiedDate)
-                textField.textColor = .secondaryLabelColor
-                textField.translatesAutoresizingMaskIntoConstraints = false
-                cellView.addSubview(textField)
-                
-                NSLayoutConstraint.activate([
-                    textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
-                    textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
-                    textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
-                ])
-                
-            case "size":
-                textField.stringValue = file.isDirectory ? "—" : file.formattedSize
-                textField.textColor = .secondaryLabelColor
-                textField.translatesAutoresizingMaskIntoConstraints = false
-                cellView.addSubview(textField)
-                
-                NSLayoutConstraint.activate([
-                    textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
-                    textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
-                    textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
-                ])
-                
-            case "type":
-                textField.stringValue = file.isDirectory ? "文件夹" : (file.fileExtension.isEmpty ? "—" : file.fileExtension.uppercased())
-                textField.textColor = .secondaryLabelColor
-                textField.translatesAutoresizingMaskIntoConstraints = false
-                cellView.addSubview(textField)
-                
-                NSLayoutConstraint.activate([
-                    textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
-                    textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
-                    textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
-                ])
-                
-            default:
-                break
-            }
-            
-            return cellView
-        }
-        
-        // MARK: - 拖拽支持
-        
-        func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-            guard row < files.count else { return nil }
-            let file = files[row]
-            
-            // 跳过文件夹
-            if file.isDirectory {
-                return nil
-            }
-            
-            // 使用 NSFilePromiseProvider（推荐方式，不会阻塞主线程）
-            let provider = FilePromiseProvider(viewModel: viewModel, file: file)
-            return provider
-        }
-        
-        func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
-            print("🎯 开始拖拽 \(rowIndexes.count) 个文件")
-        }
-        
-        func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-            if operation == .copy {
-                print("✅ 拖拽复制完成")
-            }
-        }
-        
-        func tableViewSelectionDidChange(_ notification: Notification) {
-            guard let tableView = notification.object as? NSTableView else { return }
-            
-            let selectedIndexes = tableView.selectedRowIndexes
-            let selectedIds = Set(selectedIndexes.compactMap { index in
-                index < files.count ? files[index].id : nil
-            })
-            
-            Task { @MainActor in
-                self.viewModel.selectedFiles = selectedIds
-            }
-        }
-        
-        @objc func handleDoubleClick(_ sender: NSTableView) {
-            let row = sender.clickedRow
-            guard row >= 0 && row < files.count else { return }
-            
-            let file = files[row]
-            if file.isDirectory {
-                viewModel.navigateToFolder(file)
-            } else {
-                viewModel.openFile(file)
-            }
-        }
-        
-        func createContextMenu() -> NSMenu {
-            let menu = NSMenu()
-            
-            // 动态更新菜单项
-            menu.delegate = self
-            
-            return menu
-        }
-        
-        private func iconColor(for file: FileItem) -> NSColor {
-            switch file.fileExtension {
-            case "jpg", "jpeg", "png", "gif", "heic", "webp":
-                return .systemOrange
-            case "mp4", "mov", "avi", "mkv":
-                return .systemPurple
-            case "mp3", "m4a", "wav", "flac":
-                return .systemPink
-            case "pdf":
-                return .systemRed
-            case "zip", "rar", "7z":
-                return .systemGray
-            default:
-                return .secondaryLabelColor
-            }
-        }
-    }
-}
-
-// MARK: - NSMenuDelegate for dynamic context menu
-extension NativeListView.Coordinator: NSMenuDelegate {
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        
-        if viewModel.selectedFiles.isEmpty {
-            // 空白区域右键菜单
-            let refreshItem = NSMenuItem(title: "刷新", action: #selector(refreshAction), keyEquivalent: "r")
-            refreshItem.target = self
-            menu.addItem(refreshItem)
-            
-            menu.addItem(.separator())
-            
-            let selectAllItem = NSMenuItem(title: "全选", action: #selector(selectAllAction), keyEquivalent: "a")
-            selectAllItem.target = self
-            menu.addItem(selectAllItem)
+        if file.isDirectory {
+            icon = NSImage(named: NSImage.folderName) ?? NSImage()
         } else {
-            // 选中文件的右键菜单
-            if viewModel.selectedFiles.count == 1,
-               let file = files.first(where: { viewModel.selectedFiles.contains($0.id) }),
-               !file.isDirectory {
-                let openItem = NSMenuItem(title: "打开", action: #selector(openAction), keyEquivalent: "")
-                openItem.target = self
-                menu.addItem(openItem)
-                
-                let quickLookItem = NSMenuItem(title: "快速查看", action: #selector(quickLookAction), keyEquivalent: " ")
-                quickLookItem.target = self
-                menu.addItem(quickLookItem)
-                
-                menu.addItem(.separator())
-            }
-            
-            menu.addItem(.separator())
-            
-            let downloadItem = NSMenuItem(title: "下载", action: #selector(downloadAction), keyEquivalent: "d")
-            downloadItem.target = self
-            menu.addItem(downloadItem)
-            
-            menu.addItem(.separator())
-            
-            let deleteItem = NSMenuItem(title: "删除", action: #selector(deleteAction), keyEquivalent: "")
-            deleteItem.target = self
-            menu.addItem(deleteItem)
+            let fileType = file.fileExtension.isEmpty ? "public.data" : file.fileExtension
+            icon = NSWorkspace.shared.icon(forFileType: fileType)
         }
-    }
-    
-    @objc func refreshAction() {
-        Task { @MainActor in
-            guard let currentComponent = viewModel.pathComponents.last else { return }
-            await viewModel.loadFiles(folderId: currentComponent.folderId)
-        }
-    }
-    
-    @objc func selectAllAction() {
-        viewModel.selectAllFiles()
-    }
-    
-    @objc func openAction() {
-        if let file = files.first(where: { viewModel.selectedFiles.contains($0.id) }) {
-            if file.isDirectory {
-                viewModel.navigateToFolder(file)
-            } else {
-                viewModel.openFile(file)
-            }
-        }
-    }
-    
-    @objc func quickLookAction() {
-        viewModel.previewSelectedFiles()
-    }
-    
-    @objc func downloadAction() {
-        viewModel.downloadSelectedFiles()
-    }
-    
-    @objc func deleteAction() {
-        viewModel.deleteSelectedFiles()
+        
+        let copiedIcon = icon.copy() as? NSImage ?? icon
+        copiedIcon.size = size
+        return copiedIcon
     }
 }
 
@@ -542,8 +210,8 @@ class FileIconCollectionItem: NSCollectionViewItem {
     }
     
     func configure(with file: FileItem) {
-        iconImageView.image = NSImage(systemSymbolName: file.icon, accessibilityDescription: nil)
-        iconImageView.contentTintColor = file.isDirectory ? .systemBlue : iconColor(for: file)
+        iconImageView.image = NativeFileIconProvider.icon(for: file, size: NSSize(width: 48, height: 48))
+        iconImageView.contentTintColor = nil
         nameLabel.stringValue = file.name
     }
     
@@ -567,22 +235,6 @@ class FileIconCollectionItem: NSCollectionViewItem {
         }
     }
     
-    private func iconColor(for file: FileItem) -> NSColor {
-        switch file.fileExtension {
-        case "jpg", "jpeg", "png", "gif", "heic", "webp":
-            return .systemOrange
-        case "mp4", "mov", "avi", "mkv":
-            return .systemPurple
-        case "mp3", "m4a", "wav", "flac":
-            return .systemPink
-        case "pdf":
-            return .systemRed
-        case "zip", "rar", "7z":
-            return .systemGray
-        default:
-            return .secondaryLabelColor
-        }
-    }
 }
 
 // MARK: - 原生分栏视图（多列层级导航）
@@ -818,9 +470,9 @@ struct ColumnRowView: View {
     var body: some View {
         HStack(spacing: 8) {
             // 图标
-            Image(systemName: file.icon)
-                .font(SemanticFonts.iconSmall)
-                .foregroundColor(file.isDirectory ? .blue : iconColor)
+            Image(nsImage: NativeFileIconProvider.icon(for: file, size: NSSize(width: 18, height: 18)))
+                .resizable()
+                .scaledToFit()
                 .frame(width: 20)
             
             // 文件名
@@ -855,23 +507,6 @@ struct ColumnRowView: View {
         }
     }
     
-    private var iconColor: Color {
-        switch file.fileExtension {
-        case "jpg", "jpeg", "png", "gif", "heic", "webp":
-            return .orange
-        case "mp4", "mov", "avi", "mkv":
-            return .purple
-        case "mp3", "m4a", "wav", "flac":
-            return .pink
-        case "pdf":
-            return .red
-        case "zip", "rar", "7z":
-            return .gray
-        default:
-            return .secondary
-        }
-    }
-    
     private var backgroundColor: Color {
         if isSelected {
             return Color.accentColor
@@ -879,261 +514,6 @@ struct ColumnRowView: View {
             return Color.secondary.opacity(0.1)
         } else {
             return Color.clear
-        }
-    }
-}
-
-// 分栏视图的列表部分
-struct NativeBrowserListView: NSViewRepresentable {
-    @ObservedObject var viewModel: MTPViewModel
-    let files: [FileItem]
-    
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        let tableView = NSTableView()
-        
-        // 配置表格视图（类似访达分栏视图）
-        tableView.style = .plain
-        tableView.rowSizeStyle = .default
-        tableView.headerView = nil // 不显示表头
-        tableView.allowsMultipleSelection = true
-        tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
-        tableView.target = context.coordinator
-        tableView.backgroundColor = .textBackgroundColor
-        tableView.gridStyleMask = []
-        tableView.intercellSpacing = NSSize(width: 0, height: 0)
-        
-        // 添加单列
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
-        column.width = 250
-        column.minWidth = 200
-        column.maxWidth = 400
-        tableView.addTableColumn(column)
-        
-        // 设置数据源和代理
-        tableView.dataSource = context.coordinator
-        tableView.delegate = context.coordinator
-        
-        // 添加右键菜单
-        tableView.menu = context.coordinator.createContextMenu()
-        
-        scrollView.documentView = tableView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.borderType = .noBorder
-        
-        context.coordinator.tableView = tableView
-        
-        return scrollView
-    }
-    
-    func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let tableView = nsView.documentView as? NSTableView else { return }
-        context.coordinator.files = files
-        context.coordinator.viewModel = viewModel
-        tableView.reloadData()
-        
-        // 更新选中状态
-        let selectedIndexes = IndexSet(files.enumerated().compactMap { index, file in
-            viewModel.selectedFiles.contains(file.id) ? index : nil
-        })
-        tableView.selectRowIndexes(selectedIndexes, byExtendingSelection: false)
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(viewModel: viewModel, files: files)
-    }
-    
-    @MainActor
-    class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
-        var viewModel: MTPViewModel
-        var files: [FileItem]
-        weak var tableView: NSTableView?
-        
-        init(viewModel: MTPViewModel, files: [FileItem]) {
-            self.viewModel = viewModel
-            self.files = files
-        }
-        
-        func numberOfRows(in tableView: NSTableView) -> Int {
-            return files.count
-        }
-        
-        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-            guard row < files.count else { return nil }
-            let file = files[row]
-            
-            let cellView = NSTableCellView()
-            cellView.wantsLayer = true
-            
-            // 展开箭头（仅文件夹）
-            if file.isDirectory {
-                let arrowView = NSImageView()
-                arrowView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
-                arrowView.contentTintColor = .secondaryLabelColor
-                arrowView.translatesAutoresizingMaskIntoConstraints = false
-                cellView.addSubview(arrowView)
-                
-                NSLayoutConstraint.activate([
-                    arrowView.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 8),
-                    arrowView.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-                    arrowView.widthAnchor.constraint(equalToConstant: 10),
-                    arrowView.heightAnchor.constraint(equalToConstant: 10)
-                ])
-            }
-            
-            // 图标
-            let imageView = NSImageView()
-            imageView.image = NSImage(systemSymbolName: file.icon, accessibilityDescription: nil)
-            imageView.contentTintColor = file.isDirectory ? .systemBlue : iconColor(for: file)
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            cellView.addSubview(imageView)
-            
-            // 文件名
-            let textField = NSTextField()
-            textField.isBordered = false
-            textField.backgroundColor = .clear
-            textField.isEditable = false
-            textField.font = .systemFont(ofSize: 13)
-            textField.stringValue = file.name
-            textField.lineBreakMode = .byTruncatingMiddle
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            cellView.addSubview(textField)
-            
-            let leadingOffset: CGFloat = file.isDirectory ? 26 : 8
-            
-            NSLayoutConstraint.activate([
-                imageView.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: leadingOffset),
-                imageView.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-                imageView.widthAnchor.constraint(equalToConstant: 18),
-                imageView.heightAnchor.constraint(equalToConstant: 18),
-                
-                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 8),
-                textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -8),
-                textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
-            ])
-            
-            return cellView
-        }
-        
-        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            return 28 // 访达分栏视图的行高
-        }
-        
-        func tableViewSelectionDidChange(_ notification: Notification) {
-            guard let tableView = notification.object as? NSTableView else { return }
-            
-            let selectedIndexes = tableView.selectedRowIndexes
-            let selectedIds = Set(selectedIndexes.compactMap { index in
-                index < files.count ? files[index].id : nil
-            })
-            
-            Task { @MainActor in
-                self.viewModel.selectedFiles = selectedIds
-            }
-        }
-        
-        @objc func handleDoubleClick(_ sender: NSTableView) {
-            let row = sender.clickedRow
-            guard row >= 0 && row < files.count else { return }
-            
-            let file = files[row]
-            if file.isDirectory {
-                viewModel.navigateToFolder(file)
-            } else {
-                viewModel.openFile(file)
-            }
-        }
-        
-        func createContextMenu() -> NSMenu {
-            let menu = NSMenu()
-            menu.delegate = self
-            return menu
-        }
-        
-        func menuNeedsUpdate(_ menu: NSMenu) {
-            menu.removeAllItems()
-            
-            if viewModel.selectedFiles.isEmpty {
-                // 空白区域右键菜单
-                let refreshItem = NSMenuItem(title: "刷新", action: #selector(refreshAction), keyEquivalent: "r")
-                refreshItem.target = self
-                menu.addItem(refreshItem)
-                
-                menu.addItem(.separator())
-                
-                let selectAllItem = NSMenuItem(title: "全选", action: #selector(selectAllAction), keyEquivalent: "a")
-                selectAllItem.target = self
-                menu.addItem(selectAllItem)
-            } else {
-                // 选中文件的右键菜单
-                if viewModel.selectedFiles.count == 1,
-                   let file = files.first(where: { viewModel.selectedFiles.contains($0.id) }),
-                   !file.isDirectory {
-                    let openItem = NSMenuItem(title: "打开", action: #selector(openAction), keyEquivalent: "")
-                    openItem.target = self
-                    menu.addItem(openItem)
-                    menu.addItem(.separator())
-                }
-                
-                menu.addItem(.separator())
-                
-                let downloadItem = NSMenuItem(title: "下载", action: #selector(downloadAction), keyEquivalent: "d")
-                downloadItem.target = self
-                menu.addItem(downloadItem)
-                
-                menu.addItem(.separator())
-                
-                let deleteItem = NSMenuItem(title: "删除", action: #selector(deleteAction), keyEquivalent: "")
-                deleteItem.target = self
-                menu.addItem(deleteItem)
-            }
-        }
-        
-        @objc func refreshAction() {
-            Task { @MainActor in
-                guard let currentComponent = viewModel.pathComponents.last else { return }
-                await viewModel.loadFiles(folderId: currentComponent.folderId)
-            }
-        }
-        
-        @objc func selectAllAction() {
-            viewModel.selectAllFiles()
-        }
-        
-        @objc func openAction() {
-            if let file = files.first(where: { viewModel.selectedFiles.contains($0.id) }) {
-                if file.isDirectory {
-                    viewModel.navigateToFolder(file)
-                } else {
-                    viewModel.openFile(file)
-                }
-            }
-        }
-        
-        @objc func downloadAction() {
-            viewModel.downloadSelectedFiles()
-        }
-        
-        @objc func deleteAction() {
-            viewModel.deleteSelectedFiles()
-        }
-        
-        private func iconColor(for file: FileItem) -> NSColor {
-            switch file.fileExtension {
-            case "jpg", "jpeg", "png", "gif", "heic", "webp":
-                return .systemOrange
-            case "mp4", "mov", "avi", "mkv":
-                return .systemPurple
-            case "mp3", "m4a", "wav", "flac":
-                return .systemPink
-            case "pdf":
-                return .systemRed
-            case "zip", "rar", "7z":
-                return .systemGray
-            default:
-                return .secondaryLabelColor
-            }
         }
     }
 }
@@ -1151,12 +531,13 @@ struct NativeBrowserPreviewPane: View {
                 // 大图标
                 ZStack {
                     Circle()
-                        .fill(iconColor.opacity(0.1))
+                        .fill(Color.secondary.opacity(0.08))
                         .frame(width: 100, height: 100)
                     
-                    Image(systemName: file.icon)
-                        .font(SemanticFonts.iconMedium)
-                        .foregroundColor(iconColor)
+                    Image(nsImage: NativeFileIconProvider.icon(for: file, size: NSSize(width: 64, height: 64)))
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 64, height: 64)
                 }
                 .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 4)
                 
@@ -1196,23 +577,6 @@ struct NativeBrowserPreviewPane: View {
         .background(Color(nsColor: .textBackgroundColor))
     }
     
-    private var iconColor: Color {
-        switch file.fileExtension {
-        case "jpg", "jpeg", "png", "gif", "heic", "webp":
-            return .orange
-        case "mp4", "mov", "avi", "mkv":
-            return .purple
-        case "mp3", "m4a", "wav", "flac":
-            return .pink
-        case "pdf":
-            return .red
-        case "zip", "rar", "7z":
-            return .gray
-        default:
-            return .secondary
-        }
-    }
-    
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
@@ -1238,59 +602,6 @@ struct CompactInfoRow: View {
                 .foregroundColor(.primary)
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-
-// MARK: - 支持 Quick Look 的自定义 TableView
-@MainActor
-class QuickLookEnabledTableView: NSTableView {
-    weak var coordinator: NativeListView.Coordinator?
-    
-    override func keyDown(with event: NSEvent) {
-        if handleFinderKeyCommand(event) {
-            return
-        }
-        
-        // 其他键交给父类处理
-        super.keyDown(with: event)
-    }
-    
-    private func handleFinderKeyCommand(_ event: NSEvent) -> Bool {
-        let command = event.modifierFlags.contains(.command)
-        let key = event.charactersIgnoringModifiers?.lowercased()
-        
-        if event.keyCode == 49 {
-            coordinator?.quickLookAction()
-            return true
-        }
-        
-        if command, key == "a" {
-            AppCommandCenter.shared.selectAll()
-            return true
-        }
-        
-        if command, key == "r" {
-            AppCommandCenter.shared.refresh()
-            return true
-        }
-        
-        if command, key == "d" {
-            AppCommandCenter.shared.download()
-            return true
-        }
-        
-        if command, event.keyCode == 51 {
-            AppCommandCenter.shared.deleteSelected()
-            return true
-        }
-        
-        if event.keyCode == 36 {
-            AppCommandCenter.shared.openSelected()
-            return true
-        }
-        
-        return false
     }
 }
 

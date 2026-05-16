@@ -72,10 +72,8 @@ struct NativeTableView: NSViewRepresentable {
             tableView.reloadData()
         }
         
-        // 更新选中状态
-        let selectedIndexes = IndexSet(files.enumerated().compactMap { index, file in
-            viewModel.selectedFiles.contains(file.id) ? index : nil
-        })
+        // 更新选中状态。NSTableView 展示的是 coordinator 内部排序后的数组。
+        let selectedIndexes = context.coordinator.rowIndexes(for: viewModel.selectedFiles)
         
         if tableView.selectedRowIndexes != selectedIndexes {
             tableView.selectRowIndexes(selectedIndexes, byExtendingSelection: false)
@@ -170,79 +168,39 @@ struct NativeTableView: NSViewRepresentable {
             guard row < sortedFiles.count else { return nil }
             let file = sortedFiles[row]
             
-            let identifier = tableColumn?.identifier ?? NSUserInterfaceItemIdentifier("cell")
-            var cellView = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
-            
-            if cellView == nil {
-                cellView = NSTableCellView()
-                cellView?.identifier = identifier
-            }
-            
-            // 清除旧内容
-            cellView?.subviews.forEach { $0.removeFromSuperview() }
-            
             switch tableColumn?.identifier.rawValue {
             case "name":
-                // 图标 + 文件名
-                let imageView = NSImageView()
-                imageView.image = icon(for: file)
-                imageView.imageScaling = .scaleProportionallyDown
-                imageView.translatesAutoresizingMaskIntoConstraints = false
-                
-                let textField = NSTextField()
-                textField.stringValue = file.name
-                textField.isBordered = false
-                textField.backgroundColor = .clear
-                textField.isEditable = false
-                textField.font = .systemFont(ofSize: NSFont.systemFontSize)
-                textField.lineBreakMode = .byTruncatingTail
-                textField.translatesAutoresizingMaskIntoConstraints = false
-                
-                cellView?.addSubview(imageView)
-                cellView?.addSubview(textField)
-                
-                NSLayoutConstraint.activate([
-                    imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 4),
-                    imageView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
-                    imageView.widthAnchor.constraint(equalToConstant: 16),
-                    imageView.heightAnchor.constraint(equalToConstant: 16),
-                    
-                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
-                    textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -6),
-                    textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor)
-                ])
-                
-            case "date":
-                let textField = createTextField()
-                textField.stringValue = dateFormatter.string(from: file.modifiedDate)
-                textField.textColor = .secondaryLabelColor
-                cellView?.addSubview(textField)
-                constrainTextField(textField, in: cellView!)
-                
-            case "size":
-                let textField = createTextField()
-                textField.stringValue = file.isDirectory ? "—" : file.formattedSize
-                textField.textColor = .secondaryLabelColor
-                textField.alignment = .right
-                cellView?.addSubview(textField)
-                constrainTextField(textField, in: cellView!)
-                
-            case "type":
-                let textField = createTextField()
-                if file.isDirectory {
-                    textField.stringValue = "文件夹"
-                } else {
-                    textField.stringValue = file.fileExtension.isEmpty ? "—" : file.fileExtension.uppercased()
-                }
-                textField.textColor = .secondaryLabelColor
-                cellView?.addSubview(textField)
-                constrainTextField(textField, in: cellView!)
-                
-            default:
-                break
-            }
+                let identifier = NSUserInterfaceItemIdentifier("nameCell")
+                let cellView = tableView.makeView(withIdentifier: identifier, owner: self) as? FinderNameCellView
+                    ?? FinderNameCellView(identifier: identifier)
+                cellView.configure(fileName: file.name, icon: icon(for: file))
+                return cellView
             
-            return cellView
+            case "date":
+                return configuredTextCell(
+                    tableView,
+                    identifier: "dateCell",
+                    text: dateFormatter.string(from: file.modifiedDate)
+                )
+            
+            case "size":
+                return configuredTextCell(
+                    tableView,
+                    identifier: "sizeCell",
+                    text: file.isDirectory ? "—" : file.formattedSize,
+                    alignment: .right
+                )
+            
+            case "type":
+                return configuredTextCell(
+                    tableView,
+                    identifier: "typeCell",
+                    text: file.isDirectory ? "文件夹" : (file.fileExtension.isEmpty ? "—" : file.fileExtension.uppercased())
+                )
+            
+            default:
+                return nil
+            }
         }
         
         // MARK: - 排序
@@ -310,6 +268,13 @@ struct NativeTableView: NSViewRepresentable {
             }
             cachedSortedFiles = sorted
             return sorted
+        }
+        
+        func rowIndexes(for selectedIds: Set<String>) -> IndexSet {
+            let sortedFiles = sortedFiles()
+            return IndexSet(sortedFiles.enumerated().compactMap { index, file in
+                selectedIds.contains(file.id) ? index : nil
+            })
         }
         
         // MARK: - 选择
@@ -393,23 +358,17 @@ struct NativeTableView: NSViewRepresentable {
         }
         
         // MARK: - 辅助方法
-        private func createTextField() -> NSTextField {
-            let textField = NSTextField()
-            textField.isBordered = false
-            textField.backgroundColor = .clear
-            textField.isEditable = false
-            textField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            textField.lineBreakMode = .byTruncatingTail
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            return textField
-        }
-        
-        private func constrainTextField(_ textField: NSTextField, in cellView: NSTableCellView) {
-            NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 6),
-                textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -6),
-                textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
-            ])
+        private func configuredTextCell(
+            _ tableView: NSTableView,
+            identifier: String,
+            text: String,
+            alignment: NSTextAlignment = .left
+        ) -> FinderTextCellView {
+            let itemIdentifier = NSUserInterfaceItemIdentifier(identifier)
+            let cellView = tableView.makeView(withIdentifier: itemIdentifier, owner: self) as? FinderTextCellView
+                ?? FinderTextCellView(identifier: itemIdentifier)
+            cellView.configure(text: text, alignment: alignment)
+            return cellView
         }
         
         private func icon(for file: FileItem) -> NSImage? {
@@ -427,6 +386,91 @@ struct NativeTableView: NSViewRepresentable {
             iconCache[fileType] = icon
             return icon
         }
+    }
+}
+
+@MainActor
+private final class FinderNameCellView: NSTableCellView {
+    private let iconImageView = NSImageView()
+    private let nameTextField = NSTextField(labelWithString: "")
+    
+    init(identifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        self.identifier = identifier
+        setupViews()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupViews()
+    }
+    
+    func configure(fileName: String, icon: NSImage?) {
+        iconImageView.image = icon
+        nameTextField.stringValue = fileName
+    }
+    
+    private func setupViews() {
+        guard subviews.isEmpty else { return }
+        
+        iconImageView.imageScaling = .scaleProportionallyDown
+        iconImageView.translatesAutoresizingMaskIntoConstraints = false
+        
+        nameTextField.font = .systemFont(ofSize: NSFont.systemFontSize)
+        nameTextField.lineBreakMode = .byTruncatingTail
+        nameTextField.translatesAutoresizingMaskIntoConstraints = false
+        
+        addSubview(iconImageView)
+        addSubview(nameTextField)
+        
+        NSLayoutConstraint.activate([
+            iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconImageView.widthAnchor.constraint(equalToConstant: 16),
+            iconImageView.heightAnchor.constraint(equalToConstant: 16),
+            
+            nameTextField.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 6),
+            nameTextField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            nameTextField.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+}
+
+@MainActor
+private final class FinderTextCellView: NSTableCellView {
+    private let valueTextField = NSTextField(labelWithString: "")
+    
+    init(identifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        self.identifier = identifier
+        setupViews()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupViews()
+    }
+    
+    func configure(text: String, alignment: NSTextAlignment = .left) {
+        valueTextField.stringValue = text
+        valueTextField.alignment = alignment
+    }
+    
+    private func setupViews() {
+        guard subviews.isEmpty else { return }
+        
+        valueTextField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        valueTextField.textColor = .secondaryLabelColor
+        valueTextField.lineBreakMode = .byTruncatingTail
+        valueTextField.translatesAutoresizingMaskIntoConstraints = false
+        
+        addSubview(valueTextField)
+        
+        NSLayoutConstraint.activate([
+            valueTextField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            valueTextField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            valueTextField.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
     }
 }
 

@@ -10,7 +10,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum FilePromiseType {
+enum FilePromiseType {
     static func identifier(for file: FileItem) -> String {
         if file.isDirectory {
             return UTType.folder.identifier
@@ -21,7 +21,17 @@ private enum FilePromiseType {
             return UTType.data.identifier
         }
         
+        guard !type.identifier.hasPrefix("dyn.") else {
+            return UTType.data.identifier
+        }
+        
         return type.identifier
+    }
+}
+
+enum FilePromiseDestination {
+    static func url(for file: FileItem, in destinationDirectory: URL) -> URL {
+        destinationDirectory.appendingPathComponent(file.name, isDirectory: file.isDirectory)
     }
 }
 
@@ -53,34 +63,6 @@ private enum FilePromiseType {
     }
 }
 
-// MARK: - 批量文件 Promise Provider
-@objc class BatchFilePromiseProvider: NSFilePromiseProvider {
-    var viewModel: MTPViewModel?
-    var files: [FileItem] = []
-    private var promiseDelegate: BatchFilePromiseDelegate?
-    
-    init(viewModel: MTPViewModel, files: [FileItem]) {
-        // 创建代理对象
-        let promiseDelegate = BatchFilePromiseDelegate(viewModel: viewModel, files: files)
-        self.viewModel = viewModel
-        self.files = files
-        self.promiseDelegate = promiseDelegate
-        
-        super.init()
-        self.fileType = UTType.data.identifier
-        self.delegate = promiseDelegate
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    @available(*, unavailable, message: "Use init(viewModel:files:) instead.")
-    override init() {
-        fatalError("init() has not been implemented")
-    }
-}
-
 // MARK: - NSFilePromiseProviderDelegate
 @objc class FilePromiseDelegate: NSObject, NSFilePromiseProviderDelegate {
     let viewModel: MTPViewModel
@@ -97,54 +79,16 @@ private enum FilePromiseType {
     }
     
     func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL, completionHandler: @escaping (Error?) -> Void) {
-        let destinationURL = url.appendingPathComponent(file.name, isDirectory: file.isDirectory)
-        print("📥 开始下载文件到: \(destinationURL.path)")
+        let destinationURL = FilePromiseDestination.url(for: file, in: url)
+        Logger.info("开始导出: \(file.name) -> \(destinationURL.path)")
         
         Task { @MainActor [viewModel, file] in
             do {
                 try await viewModel.downloadPromisedItem(file, to: destinationURL)
-                print("✅ 文件已下载: \(destinationURL.path)")
+                Logger.info("导出完成: \(file.name) -> \(destinationURL.path)")
                 completionHandler(nil)
             } catch {
-                completionHandler(error)
-            }
-        }
-    }
-    
-    func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue {
-        let queue = OperationQueue()
-        queue.qualityOfService = .userInitiated
-        return queue
-    }
-}
-
-// MARK: - 批量文件 Promise Delegate
-@objc class BatchFilePromiseDelegate: NSObject, NSFilePromiseProviderDelegate {
-    let viewModel: MTPViewModel
-    let files: [FileItem]
-    
-    init(viewModel: MTPViewModel, files: [FileItem]) {
-        self.viewModel = viewModel
-        self.files = files
-        super.init()
-    }
-    
-    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
-        return "\(files.count) 个文件"
-    }
-    
-    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL, completionHandler: @escaping (Error?) -> Void) {
-        print("📥 批量下载 \(files.count) 个文件到: \(url.path)")
-        
-        Task { @MainActor [viewModel, files] in
-            do {
-                for file in files {
-                    let destinationURL = url.appendingPathComponent(file.name, isDirectory: file.isDirectory)
-                    try await viewModel.downloadPromisedItem(file, to: destinationURL)
-                }
-                print("✅ \(files.count) 个文件已下载")
-                completionHandler(nil)
-            } catch {
+                Logger.error("导出失败: \(file.name) -> \(destinationURL.path) - \(error.localizedDescription)")
                 completionHandler(error)
             }
         }

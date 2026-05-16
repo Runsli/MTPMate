@@ -335,13 +335,10 @@ final class PreservationTests: XCTestCase {
             isDirectory: false,
             mimeType: "image/jpeg"
         )
-        let deviceId = "delegate-device-123"
-        
         // 创建代理实例（这是 MTPFilePromiseProvider 内部做的事情）
-        let delegate = MTPFilePromiseDelegate(
+        let delegate = FilePromiseDelegate(
             viewModel: viewModel,
-            file: testFile,
-            deviceId: deviceId
+            file: testFile
         )
         
         // 验证代理创建成功
@@ -495,9 +492,7 @@ final class PreservationTests: XCTestCase {
         // 属性: 应该能够创建多个独立的 delegate 实例
         
         let viewModel = MTPViewModel()
-        let deviceId = "multi-device"
-        
-        var delegates: [MTPFilePromiseDelegate] = []
+        var delegates: [FilePromiseDelegate] = []
         
         // 创建多个 delegate 实例
         for i in 1...10 {
@@ -511,10 +506,9 @@ final class PreservationTests: XCTestCase {
                 mimeType: "image/jpeg"
             )
             
-            let delegate = MTPFilePromiseDelegate(
+            let delegate = FilePromiseDelegate(
                 viewModel: viewModel,
-                file: file,
-                deviceId: deviceId
+                file: file
             )
             
             delegates.append(delegate)
@@ -562,10 +556,9 @@ final class PreservationTests: XCTestCase {
             XCTAssertNotNil(fileExtension, "Scenario \(index + 1): File extension should be available")
             
             // 3.4: 可以创建对应的代理
-            let delegate = MTPFilePromiseDelegate(
+            let delegate = FilePromiseDelegate(
                 viewModel: viewModel,
-                file: scenario.file,
-                deviceId: scenario.deviceId
+                file: scenario.file
             )
             
             XCTAssertNotNil(delegate, "Scenario \(index + 1): Delegate should be created")

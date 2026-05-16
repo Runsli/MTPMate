@@ -215,7 +215,15 @@ struct StatusBar: View {
             HStack(spacing: 0) {
                 // 左侧：项目统计
                 HStack(spacing: 4) {
-                    if viewModel.selectedFiles.isEmpty {
+                    if let transferStatusMessage = viewModel.transferStatusMessage {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.6)
+                        
+                        Text(transferStatusMessage)
+                            .font(SemanticFonts.fileDetail)
+                            .foregroundColor(.secondary)
+                    } else if viewModel.selectedFiles.isEmpty {
                         // 未选中时显示总数
                         Text(itemCountText)
                             .font(SemanticFonts.fileDetail)

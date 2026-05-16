@@ -23,6 +23,27 @@ struct PathComponent: Identifiable, Equatable {
     }
 }
 
+struct PromisedExportFailure: Equatable {
+    let path: String
+    let message: String
+}
+
+struct PromisedExportResult: Equatable {
+    var succeeded: Int = 0
+    var failed: [PromisedExportFailure] = []
+    var skipped: Int = 0
+    
+    var hasFailures: Bool {
+        !failed.isEmpty
+    }
+    
+    mutating func merge(_ other: PromisedExportResult) {
+        succeeded += other.succeeded
+        failed.append(contentsOf: other.failed)
+        skipped += other.skipped
+    }
+}
+
 @MainActor
 final class MTPViewModel: ObservableObject {
     @Published var devices: [MTPDevice] = []
@@ -35,10 +56,14 @@ final class MTPViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var selectedFiles: Set<String> = []
     @Published var errorMessage: String?
+    @Published var transferStatusMessage: String?
     
     private let deviceManager = MTPDeviceManager.shared
     private let fileManager = MTPFileManager.shared
     private let usbMonitor = USBDeviceMonitor.shared
+    private final class FolderTraversalState {
+        var visitedFolderIds: Set<String> = []
+    }
     
     init() {
         // 设置USB设备变化回调
@@ -519,11 +544,30 @@ final class MTPViewModel: ObservableObject {
             throw MTPError.deviceNotFound
         }
         
-        let finalURL = uniqueLocalURL(for: destinationURL)
+        transferStatusMessage = "正在导出 \(item.name)..."
+        defer { transferStatusMessage = nil }
+        
+        guard let finalURL = chooseLocalDestination(
+            proposedURL: destinationURL,
+            resolution: AppSettings.shared.conflictResolution
+        ) else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSUserCancelledError,
+                userInfo: [NSLocalizedDescriptionKey: "已跳过导出：\(item.name)"]
+            )
+        }
         
         if item.isDirectory {
             try FileManager.default.createDirectory(at: finalURL, withIntermediateDirectories: true)
-            try await downloadFolderContents(item, deviceId: device.id, to: finalURL)
+            var result = PromisedExportResult(succeeded: 1)
+            result.merge(await downloadFolderContents(
+                item,
+                deviceId: device.id,
+                to: finalURL,
+                traversalState: FolderTraversalState()
+            ))
+            publishPromisedExportResult(result, rootName: item.name)
             return
         }
         
@@ -534,6 +578,7 @@ final class MTPViewModel: ObservableObject {
             to: finalURL,
             progress: { _ in }
         )
+        Logger.info("导出完成: \(item.name) -> \(finalURL.path)")
     }
     
     /// 下载单个文件给 NSFilePromiseProvider。completion 会等真实下载完成后再回调，让 Finder 使用系统进度。
@@ -543,27 +588,102 @@ final class MTPViewModel: ObservableObject {
         try await downloadPromisedItem(file, to: destinationURL)
     }
     
-    private func downloadFolderContents(_ folder: FileItem, deviceId: String, to destinationURL: URL) async throws {
-        let children = try await fileManager.listFiles(deviceId: deviceId, parentId: folder.id)
+    private func downloadFolderContents(
+        _ folder: FileItem,
+        deviceId: String,
+        to destinationURL: URL,
+        traversalState: FolderTraversalState
+    ) async -> PromisedExportResult {
+        guard traversalState.visitedFolderIds.insert(folder.id).inserted else {
+            Logger.warning("跳过重复目录: \(folder.name) (\(folder.id))")
+            return PromisedExportResult(skipped: 1)
+        }
+        
+        let children: [FileItem]
+        do {
+            children = try await fileManager.listFiles(deviceId: deviceId, parentId: folder.id)
+        } catch {
+            Logger.error("列出目录失败: \(folder.name) -> \(destinationURL.path) - \(error.localizedDescription)")
+            return PromisedExportResult(failed: [
+                PromisedExportFailure(path: destinationURL.path, message: error.localizedDescription)
+            ])
+        }
+        
+        var result = PromisedExportResult()
         
         for child in children {
             let childURL = destinationURL.appendingPathComponent(child.name, isDirectory: child.isDirectory)
             
             if child.isDirectory {
-                let finalChildURL = uniqueLocalURL(for: childURL)
-                try FileManager.default.createDirectory(at: finalChildURL, withIntermediateDirectories: true)
-                try await downloadFolderContents(child, deviceId: deviceId, to: finalChildURL)
+                guard let finalChildURL = chooseLocalDestination(
+                    proposedURL: childURL,
+                    resolution: AppSettings.shared.conflictResolution
+                ) else {
+                    result.skipped += 1
+                    continue
+                }
+                
+                do {
+                    try FileManager.default.createDirectory(at: finalChildURL, withIntermediateDirectories: true)
+                    result.succeeded += 1
+                    result.merge(await downloadFolderContents(
+                        child,
+                        deviceId: deviceId,
+                        to: finalChildURL,
+                        traversalState: traversalState
+                    ))
+                } catch {
+                    Logger.error("创建导出目录失败: \(child.name) -> \(finalChildURL.path) - \(error.localizedDescription)")
+                    result.failed.append(PromisedExportFailure(
+                        path: finalChildURL.path,
+                        message: error.localizedDescription
+                    ))
+                }
             } else {
-                let finalChildURL = uniqueLocalURL(for: childURL)
-                try await fileManager.downloadFile(
-                    deviceId: deviceId,
-                    fileId: child.id,
-                    fileName: child.name,
-                    to: finalChildURL,
-                    progress: { _ in }
-                )
+                guard let finalChildURL = chooseLocalDestination(
+                    proposedURL: childURL,
+                    resolution: AppSettings.shared.conflictResolution
+                ) else {
+                    result.skipped += 1
+                    continue
+                }
+                
+                do {
+                    try await fileManager.downloadFile(
+                        deviceId: deviceId,
+                        fileId: child.id,
+                        fileName: child.name,
+                        to: finalChildURL,
+                        progress: { _ in }
+                    )
+                    result.succeeded += 1
+                } catch {
+                    Logger.error("导出文件失败: \(child.name) -> \(finalChildURL.path) - \(error.localizedDescription)")
+                    result.failed.append(PromisedExportFailure(
+                        path: finalChildURL.path,
+                        message: error.localizedDescription
+                    ))
+                }
             }
         }
+        
+        return result
+    }
+    
+    private func publishPromisedExportResult(_ result: PromisedExportResult, rootName: String) {
+        Logger.shared.logBatchOperation("导出", successCount: result.succeeded, failCount: result.failed.count)
+        
+        if result.hasFailures {
+            let failurePreview = result.failed.prefix(3)
+                .map { "\(($0.path as NSString).lastPathComponent): \($0.message)" }
+                .joined(separator: "\n")
+            errorMessage = "导出“\(rootName)”完成：成功 \(result.succeeded) 个，失败 \(result.failed.count) 个，跳过 \(result.skipped) 个。\n\(failurePreview)"
+        }
+        
+        sendNotification(
+            title: "导出完成",
+            body: "成功 \(result.succeeded) 个，失败 \(result.failed.count) 个，跳过 \(result.skipped) 个"
+        )
     }
     
     private func downloadFiles(

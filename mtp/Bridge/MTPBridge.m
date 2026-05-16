@@ -18,15 +18,31 @@
 
 static NSMutableDictionary<NSString *, NSValue *> *deviceHandles;
 static dispatch_queue_t deviceHandlesQueue;
-static NSLock *downloadLock;  // 使用 NSLock 替代信号量
+static NSMutableDictionary<NSString *, NSLock *> *deviceOperationLocks;
+static NSLock *deviceOperationLocksGuard;
+static NSMutableDictionary<NSString *, NSNumber *> *folderStorageIds;
+
+#ifdef DEBUG
+#define MTPDebugLog(...) NSLog(__VA_ARGS__)
+#else
+#define MTPDebugLog(...)
+#endif
+
+static int MTPProgressBridge(uint64_t const sent, uint64_t const total, void const * const data) {
+    MTPProgressCallback callback = (__bridge MTPProgressCallback)data;
+    if (callback && total > 0) {
+        callback((double)sent / (double)total, sent, total);
+    }
+    return 0;
+}
 
 + (void)initialize {
     if (self == [MTPBridge class]) {
         deviceHandles = [NSMutableDictionary dictionary];
         deviceHandlesQueue = dispatch_queue_create("com.mtp.deviceHandles", DISPATCH_QUEUE_SERIAL);
-        
-        // 使用 NSLock 避免优先级反转问题
-        downloadLock = [[NSLock alloc] init];
+        deviceOperationLocks = [NSMutableDictionary dictionary];
+        deviceOperationLocksGuard = [[NSLock alloc] init];
+        folderStorageIds = [NSMutableDictionary dictionary];
         
         LIBMTP_Init();
     }
@@ -47,6 +63,21 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
         }
     });
     return device;
+}
+
++ (NSLock *)operationLockForDeviceId:(NSString *)deviceId {
+    [deviceOperationLocksGuard lock];
+    NSLock *lock = deviceOperationLocks[deviceId];
+    if (!lock) {
+        lock = [[NSLock alloc] init];
+        deviceOperationLocks[deviceId] = lock;
+    }
+    [deviceOperationLocksGuard unlock];
+    return lock;
+}
+
++ (NSString *)storageCacheKeyForDeviceId:(NSString *)deviceId folderId:(NSString *)folderId {
+    return [NSString stringWithFormat:@"%@:%@", deviceId, folderId];
 }
 
 + (nullable NSArray<MTPDeviceInfo *> *)scanDevices:(NSError * _Nullable * _Nullable)error {
@@ -236,6 +267,16 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
         LIBMTP_mtpdevice_t *device = [value pointerValue];
         LIBMTP_Release_Device(device);
         [deviceHandles removeObjectForKey:deviceId];
+        [deviceOperationLocksGuard lock];
+        [deviceOperationLocks removeObjectForKey:deviceId];
+        [deviceOperationLocksGuard unlock];
+        
+        NSString *prefix = [NSString stringWithFormat:@"%@:", deviceId];
+        for (NSString *key in folderStorageIds.allKeys) {
+            if ([key hasPrefix:prefix]) {
+                [folderStorageIds removeObjectForKey:key];
+            }
+        }
     }
 }
 
@@ -286,11 +327,21 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     NSMutableArray<MTPFileInfo *> *files = [NSMutableArray array];
     
     uint32_t parent = parentId ? (uint32_t)[parentId integerValue] : LIBMTP_FILES_AND_FOLDERS_ROOT;
+    NSLock *operationLock = [self operationLockForDeviceId:deviceId];
+    [operationLock lock];
+    
+    @try {
+    NSNumber *cachedStorageId = parentId ? folderStorageIds[[self storageCacheKeyForDeviceId:deviceId folderId:parentId]] : nil;
     
     // 遍历所有存储设备
     LIBMTP_devicestorage_t *storage = device->storage;
     while (storage) {
-        NSLog(@"📦 正在列出存储 ID: %u, 名称: %s", storage->id, storage->StorageDescription ?: "Unknown");
+        if (cachedStorageId && storage->id != cachedStorageId.unsignedIntValue) {
+            storage = storage->next;
+            continue;
+        }
+        
+        MTPDebugLog(@"📦 正在列出存储 ID: %u, 名称: %s", storage->id, storage->StorageDescription ?: "Unknown");
         
         LIBMTP_file_t *fileList = LIBMTP_Get_Files_And_Folders(device, storage->id, parent);
         
@@ -308,6 +359,10 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
             info.modifiedDate = [NSDate dateWithTimeIntervalSince1970:current->modificationdate];
             info.parentId = [NSString stringWithFormat:@"%u", current->parent_id];
             
+            if (info.isDirectory) {
+                folderStorageIds[[self storageCacheKeyForDeviceId:deviceId folderId:info.fileId]] = @(storage->id);
+            }
+            
             // 构建文件路径
             if (parent == LIBMTP_FILES_AND_FOLDERS_ROOT) {
                 info.filePath = [NSString stringWithFormat:@"/%@", info.fileName];
@@ -315,7 +370,7 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
                 info.filePath = info.fileName; // 子目录的路径需要由上层维护
             }
             
-            NSLog(@"📄 文件: %@ (ID: %@, 类型: %@, 大小: %llu)", 
+            MTPDebugLog(@"📄 文件: %@ (ID: %@, 类型: %@, 大小: %llu)", 
                   info.fileName, info.fileId, 
                   info.isDirectory ? @"文件夹" : @"文件", 
                   info.fileSize);
@@ -329,7 +384,11 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
         storage = storage->next;
     }
     
-    NSLog(@"✅ 总共找到 %lu 个文件/文件夹", (unsigned long)files.count);
+    MTPDebugLog(@"✅ 总共找到 %lu 个文件/文件夹", (unsigned long)files.count);
+    }
+    @finally {
+        [operationLock unlock];
+    }
     
     return files;
 }
@@ -340,15 +399,13 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
             progress:(nullable MTPProgressCallback)progressCallback
                error:(NSError * _Nullable * _Nullable)error {
     
-    NSLog(@"📥 MTPBridge downloadFile 开始:");
-    NSLog(@"   - deviceId: %@", deviceId);
-    NSLog(@"   - fileId: %@", fileId);
-    NSLog(@"   - destination: %@", destinationPath);
+    MTPDebugLog(@"📥 MTPBridge downloadFile 开始:");
+    MTPDebugLog(@"   - deviceId: %@", deviceId);
+    MTPDebugLog(@"   - fileId: %@", fileId);
+    MTPDebugLog(@"   - destination: %@", destinationPath);
     
-    // 使用 NSLock 防止并发下载（避免优先级反转）
-    NSLog(@"⏳ 等待下载锁...");
-    [downloadLock lock];
-    NSLog(@"🔓 获得下载锁");
+    NSLock *operationLock = [self operationLockForDeviceId:deviceId];
+    [operationLock lock];
     
     // 确保在任何情况下都释放锁
     BOOL success = NO;
@@ -368,7 +425,7 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
         
         // 转换文件 ID
         uint32_t fileIdInt = (uint32_t)[fileId integerValue];
-        NSLog(@"   - fileIdInt: %u", fileIdInt);
+        MTPDebugLog(@"   - fileIdInt: %u", fileIdInt);
         
         if (fileIdInt == 0) {
             NSLog(@"❌ 文件 ID 无效: %@", fileId);
@@ -394,12 +451,21 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
             return NO;
         }
         
-        NSLog(@"📥 调用 LIBMTP_Get_File_To_File...");
+        MTPDebugLog(@"📥 调用 LIBMTP_Get_File_To_File...");
+        
+        MTPProgressCallback callback = [progressCallback copy];
+        void *callbackContext = callback ? (__bridge void *)callback : NULL;
         
         // 调用 libmtp 下载文件
-        int result = LIBMTP_Get_File_To_File(device, fileIdInt, (char *)destPath, NULL, NULL);
+        int result = LIBMTP_Get_File_To_File(
+            device,
+            fileIdInt,
+            (char *)destPath,
+            callback ? MTPProgressBridge : NULL,
+            callbackContext
+        );
         
-        NSLog(@"📥 LIBMTP_Get_File_To_File 返回: %d", result);
+        MTPDebugLog(@"📥 LIBMTP_Get_File_To_File 返回: %d", result);
         
         if (result != 0) {
             NSLog(@"❌ 下载失败，错误码: %d", result);
@@ -423,14 +489,12 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
             }
             success = NO;
         } else {
-            NSLog(@"✅ 文件下载成功");
+            MTPDebugLog(@"✅ 文件下载成功");
             success = YES;
         }
     }
     @finally {
-        // 释放下载锁
-        NSLog(@"🔓 释放下载锁");
-        [downloadLock unlock];
+        [operationLock unlock];
     }
     
     return success;
@@ -453,7 +517,10 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     }
     
     LIBMTP_mtpdevice_t *device = [value pointerValue];
+    NSLock *operationLock = [self operationLockForDeviceId:deviceId];
+    [operationLock lock];
     
+    @try {
     // 获取文件大小
     NSFileManager *fileManager = [NSFileManager defaultManager];
     NSDictionary *attributes = [fileManager attributesOfItemAtPath:sourcePath error:error];
@@ -472,7 +539,15 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     genfile->storage_id = 0;
     
     const char *srcPath = [sourcePath UTF8String];
-    int result = LIBMTP_Send_File_From_File(device, (char *)srcPath, genfile, NULL, NULL);
+    MTPProgressCallback callback = [progressCallback copy];
+    void *callbackContext = callback ? (__bridge void *)callback : NULL;
+    int result = LIBMTP_Send_File_From_File(
+        device,
+        (char *)srcPath,
+        genfile,
+        callback ? MTPProgressBridge : NULL,
+        callbackContext
+    );
     
     NSString *newFileId = nil;
     if (result == 0) {
@@ -488,6 +563,10 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     LIBMTP_destroy_file_t(genfile);
     
     return newFileId;
+    }
+    @finally {
+        [operationLock unlock];
+    }
 }
 
 + (BOOL)deleteFile:(NSString * _Nonnull)deviceId 
@@ -505,7 +584,10 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     
     LIBMTP_mtpdevice_t *device = [value pointerValue];
     uint32_t fileIdInt = (uint32_t)[fileId integerValue];
+    NSLock *operationLock = [self operationLockForDeviceId:deviceId];
+    [operationLock lock];
     
+    @try {
     int result = LIBMTP_Delete_Object(device, fileIdInt);
     
     if (result != 0) {
@@ -518,6 +600,10 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     }
     
     return YES;
+    }
+    @finally {
+        [operationLock unlock];
+    }
 }
 
 + (nullable NSString *)createFolder:(NSString * _Nonnull)deviceId
@@ -536,7 +622,10 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     
     LIBMTP_mtpdevice_t *device = [value pointerValue];
     uint32_t parent = parentId ? (uint32_t)[parentId integerValue] : LIBMTP_FILES_AND_FOLDERS_ROOT;
+    NSLock *operationLock = [self operationLockForDeviceId:deviceId];
+    [operationLock lock];
     
+    @try {
     const char *folderName = [name UTF8String];
     uint32_t newFolderId = LIBMTP_Create_Folder(device, (char *)folderName, parent, 0);
     
@@ -550,6 +639,10 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     }
     
     return [NSString stringWithFormat:@"%u", newFolderId];
+    }
+    @finally {
+        [operationLock unlock];
+    }
 }
 
 + (BOOL)renameFile:(NSString * _Nonnull)deviceId
@@ -568,7 +661,10 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     
     LIBMTP_mtpdevice_t *device = [value pointerValue];
     uint32_t fileIdInt = (uint32_t)[fileId integerValue];
+    NSLock *operationLock = [self operationLockForDeviceId:deviceId];
+    [operationLock lock];
     
+    @try {
     // First get the file metadata to obtain the LIBMTP_file_t object
     LIBMTP_file_t *fileObject = LIBMTP_Get_Filemetadata(device, fileIdInt);
     if (!fileObject) {
@@ -601,6 +697,10 @@ static NSLock *downloadLock;  // 使用 NSLock 替代信号量
     }
     
     return YES;
+    }
+    @finally {
+        [operationLock unlock];
+    }
 }
 
 @end

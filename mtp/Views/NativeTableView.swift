@@ -64,10 +64,13 @@ struct NativeTableView: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let tableView = nsView.documentView as? NSTableView else { return }
         
+        let needsReload = context.coordinator.files != files
         context.coordinator.viewModel = viewModel
         context.coordinator.files = files
         
-        tableView.reloadData()
+        if needsReload {
+            tableView.reloadData()
+        }
         
         // 更新选中状态
         let selectedIndexes = IndexSet(files.enumerated().compactMap { index, file in
@@ -125,9 +128,24 @@ struct NativeTableView: NSViewRepresentable {
     @MainActor
     class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         var viewModel: MTPViewModel
-        var files: [FileItem]
+        var files: [FileItem] {
+            didSet {
+                if oldValue != files {
+                    cachedSortedFiles = nil
+                }
+            }
+        }
         weak var tableView: NSTableView?
         private var sortDescriptors: [NSSortDescriptor] = []
+        private var cachedSortedFiles: [FileItem]?
+        private let dateFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            formatter.doesRelativeDateFormatting = true
+            return formatter
+        }()
+        private var iconCache: [String: NSImage] = [:]
         
         init(viewModel: MTPViewModel, files: [FileItem]) {
             self.viewModel = viewModel
@@ -196,11 +214,7 @@ struct NativeTableView: NSViewRepresentable {
                 
             case "date":
                 let textField = createTextField()
-                let formatter = DateFormatter()
-                formatter.dateStyle = .medium
-                formatter.timeStyle = .short
-                formatter.doesRelativeDateFormatting = true
-                textField.stringValue = formatter.string(from: file.modifiedDate)
+                textField.stringValue = dateFormatter.string(from: file.modifiedDate)
                 textField.textColor = .secondaryLabelColor
                 cellView?.addSubview(textField)
                 constrainTextField(textField, in: cellView!)
@@ -234,6 +248,7 @@ struct NativeTableView: NSViewRepresentable {
         // MARK: - 排序
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
             sortDescriptors = tableView.sortDescriptors
+            cachedSortedFiles = nil
             tableView.reloadData()
             
             // 保持选中状态
@@ -246,18 +261,25 @@ struct NativeTableView: NSViewRepresentable {
         }
         
         private func sortedFiles() -> [FileItem] {
+            if let cachedSortedFiles {
+                return cachedSortedFiles
+            }
+            
+            let sorted: [FileItem]
             guard !sortDescriptors.isEmpty else {
                 // 默认排序：文件夹在前，然后按名称
-                return files.sorted { file1, file2 in
+                sorted = files.sorted { file1, file2 in
                     if file1.isDirectory != file2.isDirectory {
                         return file1.isDirectory
                     }
                     return file1.name.localizedCaseInsensitiveCompare(file2.name) == .orderedAscending
                 }
+                cachedSortedFiles = sorted
+                return sorted
             }
             
             // 手动实现排序
-            return files.sorted { file1, file2 in
+            sorted = files.sorted { file1, file2 in
                 for descriptor in sortDescriptors {
                     let ascending = descriptor.ascending
                     
@@ -286,6 +308,8 @@ struct NativeTableView: NSViewRepresentable {
                 }
                 return false
             }
+            cachedSortedFiles = sorted
+            return sorted
         }
         
         // MARK: - 选择
@@ -394,8 +418,13 @@ struct NativeTableView: NSViewRepresentable {
             }
             
             let fileType = file.fileExtension.isEmpty ? "public.data" : file.fileExtension
+            if let cachedIcon = iconCache[fileType] {
+                return cachedIcon
+            }
+            
             let icon = NSWorkspace.shared.icon(forFileType: fileType)
             icon.size = NSSize(width: 16, height: 16)
+            iconCache[fileType] = icon
             return icon
         }
     }

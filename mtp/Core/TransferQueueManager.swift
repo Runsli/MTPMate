@@ -21,11 +21,20 @@ class TransferQueueManager: ObservableObject {
     @Published var completedCount: Int = 0
     @Published var failedCount: Int = 0
     
-    private let maxConcurrentTasks = 3
+    // libmtp access to a single device is effectively serialized; keeping the
+    // app-level queue serial avoids hidden lock contention and unstable device state.
+    private let maxConcurrentTasks = 1
     private var activeTasks: Set<UUID> = []
     
     private let fileManager = MTPFileManager.shared
     private var deviceId: String?
+    private var uploadConflictNameCache: [UploadDestinationKey: Set<String>] = [:]
+    private var loadedUploadConflictKeys: Set<UploadDestinationKey> = []
+    
+    private struct UploadDestinationKey: Hashable {
+        let deviceId: String
+        let parentId: String?
+    }
     
     private init() {}
     
@@ -109,13 +118,23 @@ class TransferQueueManager: ObservableObject {
         destinationParentId: String?,
         conflictResolution: ConflictResolution = .ask
     ) {
-        for url in sourceURLs {
-            addUploadTask(
-                deviceId: deviceId,
-                sourceURL: url,
-                destinationParentId: destinationParentId,
-                conflictResolution: conflictResolution
-            )
+        self.deviceId = deviceId
+        
+        Task { @MainActor in
+            await primeUploadConflictCache(deviceId: deviceId, parentId: destinationParentId)
+            
+            for url in sourceURLs {
+                enqueueUploadTask(
+                    deviceId: deviceId,
+                    sourceURL: url,
+                    destinationParentId: destinationParentId,
+                    conflictResolution: conflictResolution
+                )
+            }
+            
+            if !isProcessing {
+                processQueue()
+            }
         }
     }
     
@@ -247,6 +266,10 @@ class TransferQueueManager: ObservableObject {
                 }
             }
         )
+        
+        await MainActor.run {
+            self.recordUploadedName(task.resolvedFileName ?? finalFileName, deviceId: deviceId, parentId: task.destinationParentId)
+        }
     }
     
     nonisolated private func performDownload(_ task: TransferTask, deviceId: String) async throws {
@@ -325,10 +348,7 @@ class TransferQueueManager: ObservableObject {
     }
     
     nonisolated private func checkUploadConflict(deviceId: String, fileName: String, parentId: String?) async throws -> Bool {
-        // 获取 fileManager（需要在主线程）
-        let fileManager = await MainActor.run { MTPFileManager.shared }
-        let files = try await fileManager.listFiles(deviceId: deviceId, parentId: parentId)
-        return files.contains { $0.name == fileName }
+        try await hasCachedUploadConflict(deviceId: deviceId, fileName: fileName, parentId: parentId)
     }
     
     nonisolated private func generateUniqueName(_ originalName: String, isUpload: Bool, task: TransferTask) -> String {
@@ -457,5 +477,66 @@ class TransferQueueManager: ObservableObject {
     
     var pausedCount: Int {
         tasks.filter { $0.status == .paused }.count
+    }
+    
+    private func enqueueUploadTask(
+        deviceId: String,
+        sourceURL: URL,
+        destinationParentId: String?,
+        conflictResolution: ConflictResolution = .ask
+    ) {
+        let filePath = sourceURL.path
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: filePath),
+              let fileSize = attributes[.size] as? Int64 else {
+            Logger.error("无法获取文件大小: \(filePath)")
+            return
+        }
+        
+        let task = TransferTask(
+            fileName: sourceURL.lastPathComponent,
+            fileSize: fileSize,
+            direction: .upload,
+            sourceURL: sourceURL,
+            sourceFileId: nil,
+            destinationURL: nil,
+            destinationParentId: destinationParentId
+        )
+        task.conflictResolution = conflictResolution
+        
+        tasks.append(task)
+        self.deviceId = deviceId
+        
+        Logger.debug("添加上传任务: \(task.fileName)")
+    }
+    
+    private func primeUploadConflictCache(deviceId: String, parentId: String?) async {
+        let key = UploadDestinationKey(deviceId: deviceId, parentId: parentId)
+        guard !loadedUploadConflictKeys.contains(key) else { return }
+        
+        do {
+            let files = try await fileManager.listFiles(deviceId: deviceId, parentId: parentId)
+            uploadConflictNameCache[key] = Set(files.map(\.name))
+            loadedUploadConflictKeys.insert(key)
+        } catch {
+            Logger.warning("预加载上传冲突缓存失败: \(error.localizedDescription)")
+        }
+    }
+    
+    private func hasCachedUploadConflict(deviceId: String, fileName: String, parentId: String?) async throws -> Bool {
+        let key = UploadDestinationKey(deviceId: deviceId, parentId: parentId)
+        
+        if !loadedUploadConflictKeys.contains(key) {
+            let files = try await fileManager.listFiles(deviceId: deviceId, parentId: parentId)
+            uploadConflictNameCache[key] = Set(files.map(\.name))
+            loadedUploadConflictKeys.insert(key)
+        }
+        
+        return uploadConflictNameCache[key]?.contains(fileName) ?? false
+    }
+    
+    private func recordUploadedName(_ fileName: String, deviceId: String, parentId: String?) {
+        let key = UploadDestinationKey(deviceId: deviceId, parentId: parentId)
+        uploadConflictNameCache[key, default: []].insert(fileName)
+        loadedUploadConflictKeys.insert(key)
     }
 }

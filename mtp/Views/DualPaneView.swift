@@ -158,6 +158,7 @@ struct DeviceFilePane: View {
     @State private var searchText = ""
     @State private var selectedFilterOption: FilterOption = .all
     @State private var sortOrder: [KeyPathComparator<FileItem>] = []
+    @State private var visibleFiles: [FileItem] = []
     
     enum FilterOption: String, CaseIterable {
         case all = "全部"
@@ -212,7 +213,7 @@ struct DeviceFilePane: View {
                 if viewModel.isLoading {
                     ProgressView("加载中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if filteredFiles.isEmpty {
+                } else if visibleFiles.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: searchText.isEmpty ? "folder" : "magnifyingglass")
                             .font(SemanticFonts.iconMedium)
@@ -224,16 +225,43 @@ struct DeviceFilePane: View {
                 } else {
                     DeviceFileTable(
                         viewModel: viewModel,
-                        files: sortedFiles,
-                        sortOrder: $sortOrder,
+                        files: visibleFiles,
+                        sortOrder: sortOrderBinding,
                         isActive: isActive
                     )
                 }
             }
         }
+        .onAppear(perform: refreshVisibleFiles)
+        .onChange(of: viewModel.currentFiles) { _, _ in
+            refreshVisibleFiles()
+        }
+        .onChange(of: searchText) { _, _ in
+            refreshVisibleFiles()
+        }
+        .onChange(of: selectedFilterOption) { _, _ in
+            refreshVisibleFiles()
+        }
     }
     
-    private var filteredFiles: [FileItem] {
+    private var sortOrderBinding: Binding<[KeyPathComparator<FileItem>]> {
+        Binding {
+            sortOrder
+        } set: { newValue in
+            sortOrder = newValue
+            refreshVisibleFiles(using: newValue)
+        }
+    }
+    
+    private func refreshVisibleFiles() {
+        refreshVisibleFiles(using: sortOrder)
+    }
+    
+    private func refreshVisibleFiles(using sortOrder: [KeyPathComparator<FileItem>]) {
+        visibleFiles = filteredAndSortedFiles(using: sortOrder)
+    }
+    
+    private func filteredAndSortedFiles(using sortOrder: [KeyPathComparator<FileItem>]) -> [FileItem] {
         var files = viewModel.currentFiles
         
         // 搜索过滤
@@ -256,12 +284,6 @@ struct DeviceFilePane: View {
         case .folders:
             files = files.filter { $0.isDirectory }
         }
-        
-        return files
-    }
-    
-    private var sortedFiles: [FileItem] {
-        var files = filteredFiles
         
         if !sortOrder.isEmpty {
             files.sort { file1, file2 in

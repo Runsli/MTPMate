@@ -18,6 +18,7 @@ struct FileListView: View {
     @State private var showingNewFolderDialog = false
     @State private var newFolderName = ""
     @State private var sortOrder: [KeyPathComparator<FileItem>] = []
+    @State private var visibleFiles: [FileItem] = []
     
     enum FilterOption: String, CaseIterable {
         case all = "全部"
@@ -46,7 +47,7 @@ struct FileListView: View {
                 } else if viewModel.isLoading {
                     ProgressView("加载中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if filteredFiles.isEmpty {
+                } else if visibleFiles.isEmpty {
                     MTPEmptyStateView(
                         systemImage: searchText.isEmpty ? "folder" : "magnifyingglass",
                         title: searchText.isEmpty ? "文件夹为空" : "未找到匹配的文件",
@@ -58,18 +59,18 @@ struct FileListView: View {
                         case .icons:
                             SwiftUIFileIconGridView(
                                 viewModel: viewModel,
-                                files: sortedFiles
+                                files: visibleFiles
                             )
                         case .list:
                             SwiftUIFileTableView(
                                 viewModel: viewModel,
-                                files: sortedFiles,
-                                sortOrder: $sortOrder
+                                files: visibleFiles,
+                                sortOrder: sortOrderBinding
                             )
                         case .columns:
                             SwiftUIColumnBrowserView(
                                 viewModel: viewModel,
-                                files: sortedFiles
+                                files: visibleFiles
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
@@ -178,10 +179,40 @@ struct FileListView: View {
                 }
                 .disabled(newFolderName.isEmpty)
             }
+            .onAppear(perform: refreshVisibleFiles)
+            .onChange(of: viewModel.currentFiles) { _, _ in
+                refreshVisibleFiles()
+            }
+            .onChange(of: searchText) { _, _ in
+                refreshVisibleFiles()
+            }
+            .onChange(of: selectedFilterOption) { _, _ in
+                refreshVisibleFiles()
+            }
+            .onChange(of: settings.showHiddenFiles) { _, _ in
+                refreshVisibleFiles()
+            }
         }
     }
     
-    private var filteredFiles: [FileItem] {
+    private var sortOrderBinding: Binding<[KeyPathComparator<FileItem>]> {
+        Binding {
+            sortOrder
+        } set: { newValue in
+            sortOrder = newValue
+            refreshVisibleFiles(using: newValue)
+        }
+    }
+    
+    private func refreshVisibleFiles() {
+        refreshVisibleFiles(using: sortOrder)
+    }
+    
+    private func refreshVisibleFiles(using sortOrder: [KeyPathComparator<FileItem>]) {
+        visibleFiles = filteredAndSortedFiles(using: sortOrder)
+    }
+    
+    private func filteredAndSortedFiles(using sortOrder: [KeyPathComparator<FileItem>]) -> [FileItem] {
         var files = viewModel.currentFiles
         
         if !settings.showHiddenFiles {
@@ -208,12 +239,6 @@ struct FileListView: View {
         case .folders:
             files = files.filter { $0.isDirectory }
         }
-        
-        return files
-    }
-    
-    private var sortedFiles: [FileItem] {
-        var files = filteredFiles
         
         // 应用排序
         if !sortOrder.isEmpty {

@@ -8,6 +8,30 @@
 import Foundation
 import Combine
 
+private final class ProgressThrottler: @unchecked Sendable {
+    private let minimumInterval: TimeInterval
+    private let lock = NSLock()
+    private var lastPublishTime = Date.distantPast
+    
+    init(minimumInterval: TimeInterval) {
+        self.minimumInterval = minimumInterval
+    }
+    
+    func shouldPublish(progress: Double) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        
+        let now = Date()
+        let isTerminalProgress = progress >= 1.0
+        guard now.timeIntervalSince(lastPublishTime) >= minimumInterval || isTerminalProgress else {
+            return false
+        }
+        
+        lastPublishTime = now
+        return true
+    }
+}
+
 @MainActor
 final class MTPFileManager: ObservableObject {
     static let shared = MTPFileManager()
@@ -98,6 +122,8 @@ final class MTPFileManager: ObservableObject {
         to destinationURL: URL,
         progress: @escaping (Double) -> Void
     ) async throws {
+        let progressThrottler = ProgressThrottler(minimumInterval: 0.15)
+        
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
@@ -108,6 +134,7 @@ final class MTPFileManager: ObservableObject {
                         fileId: fileId,
                         toDestination: destinationURL.path,
                         progress: { progressValue, transferred, total in
+                            guard progressThrottler.shouldPublish(progress: progressValue) else { return }
                             Task { @MainActor in
                                 progress(progressValue)
                             }
@@ -171,6 +198,8 @@ final class MTPFileManager: ObservableObject {
         fileName: String,
         progress: @escaping (Double) -> Void
     ) async throws -> String {
+        let progressThrottler = ProgressThrottler(minimumInterval: 0.15)
+        
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
@@ -181,6 +210,7 @@ final class MTPFileManager: ObservableObject {
                         toParentId: parentId,
                         fileName: fileName,
                         progress: { progressValue, transferred, total in
+                            guard progressThrottler.shouldPublish(progress: progressValue) else { return }
                             Task { @MainActor in
                                 progress(progressValue)
                             }

@@ -30,7 +30,7 @@ final class QuickLookManager: NSObject {
         self.currentIndex = index
         self.viewModel = viewModel
         
-        // 预创建所有预览项
+        // 只创建 lightweight preview item；实际文件按需下载，避免大目录一次性预取。
         self.previewItems = files.map { QuickLookPreviewItem(file: $0, manager: self) }
         
         // 在主线程上操作 Quick Look
@@ -56,6 +56,7 @@ final class QuickLookManager: NSObject {
             
             // 设置当前索引
             panel.currentPreviewItemIndex = index
+            self.prefetchPreviewItems(around: index)
             
             print("🔍 Quick Look 预览已打开，共 \(files.count) 个文件")
         }
@@ -105,6 +106,17 @@ final class QuickLookManager: NSObject {
         previewItems.removeAll()
     }
     
+    fileprivate func prefetchPreviewItems(around index: Int) {
+        guard !previewItems.isEmpty else { return }
+        
+        let lowerBound = max(0, index - 1)
+        let upperBound = min(previewItems.count - 1, index + 1)
+        
+        for itemIndex in lowerBound...upperBound {
+            previewItems[itemIndex].startDownload()
+        }
+    }
+    
     /// 下载文件到临时目录用于预览
     fileprivate func downloadFileForPreview(_ file: FileItem) async -> URL? {
         guard let viewModel = viewModel else {
@@ -131,7 +143,8 @@ final class QuickLookManager: NSObject {
             return nil
         }
         
-        let tempFile = tempDir.appendingPathComponent(file.name)
+        let safeFileId = file.id.replacingOccurrences(of: "/", with: "-")
+        let tempFile = tempDir.appendingPathComponent("\(safeFileId)-\(file.name)")
         
         // 如果文件已存在，直接返回
         if FileManager.default.fileExists(atPath: tempFile.path) {
@@ -198,6 +211,9 @@ extension QuickLookManager: QLPreviewPanelDataSource {
             return nil
         }
         
+        currentIndex = index
+        prefetchPreviewItems(around: index)
+        
         return previewItems[index]
     }
 }
@@ -236,12 +252,9 @@ class QuickLookPreviewItem: NSObject, QLPreviewItem {
         self.file = file
         self.manager = manager
         super.init()
-        
-        // 立即开始下载
-        startDownload()
     }
     
-    private func startDownload() {
+    func startDownload() {
         guard downloadTask == nil else { return }
         
         downloadTask = Task {

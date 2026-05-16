@@ -86,6 +86,7 @@ class TransferTask: Identifiable, ObservableObject {
     var task: Task<Void, Never>?
     private var startTime: Date?
     private var lastUpdateTime: Date?
+    private var lastPublishedProgressTime: Date?
     private var lastTransferredBytes: Int64 = 0
     
     init(
@@ -114,6 +115,14 @@ class TransferTask: Identifiable, ObservableObject {
         if startTime == nil {
             startTime = now
         }
+        
+        let isTerminalProgress = newProgress >= 1.0 || transferred >= fileSize
+        if let lastPublish = lastPublishedProgressTime,
+           now.timeIntervalSince(lastPublish) < 0.15,
+           !isTerminalProgress {
+            return
+        }
+        lastPublishedProgressTime = now
         
         progress = newProgress
         transferredBytes = transferred

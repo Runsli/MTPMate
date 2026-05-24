@@ -1,89 +1,91 @@
 # MTPMate
 
-MTPMate 是一款 macOS 上的 Android/MTP 设备文件传输工具，使用 SwiftUI 构建界面，并通过 Objective-C 桥接 `libmtp` 访问设备文件系统。
+**English** | [简体中文](README.zh-Hans.md)
 
-## 功能
+MTPMate is a macOS file transfer tool for Android/MTP devices. It uses SwiftUI for the interface and bridges to `libmtp` via Objective-C to access device file systems.
 
-- 扫描并连接 Android/MTP 设备
-- 浏览设备目录和文件
-- 上传、下载、删除和重命名文件
-- 支持传输队列和进度展示
-- 支持本地文件面板、双栏模式和拖拽传输
-- 支持 Quick Look 预览部分文件类型
-- 提供中文界面和 macOS 原生菜单本地化
+## Features
 
-## 系统要求
+- Scan and connect to Android/MTP devices
+- Browse device directories and files
+- Upload, download, delete, and rename files
+- Transfer queue with progress display
+- Local file pane, dual-pane layout, and drag-and-drop transfers
+- Quick Look preview for supported file types
+- Localized UI (English and Simplified Chinese) with native macOS menus
 
-- macOS 15.0 或更高版本
-- Xcode 16 或更高版本
+## Requirements
+
+- macOS 15.0 or later
+- Xcode 16 or later
 - Homebrew
 - `libmtp`
 
-安装依赖：
+Install dependencies:
 
 ```sh
 brew install libmtp
 ```
 
-## 构建
+## Build
 
-1. 克隆仓库：
+1. Clone the repository:
 
 ```sh
 git clone https://github.com/runsli/MTPMate.git
 cd MTPMate
 ```
 
-2. 打开 Xcode 工程：
+2. Open the Xcode project:
 
 ```sh
 open mtp.xcodeproj
 ```
 
-3. 选择 `mtp` scheme，然后运行或构建项目。
+3. Select the `mtp` scheme, then run or build the project.
 
-也可以使用命令行构建：
+You can also build from the command line:
 
 ```sh
 xcodebuild -project mtp.xcodeproj -scheme mtp -configuration Debug build
 ```
 
-## 使用说明
+## Usage
 
-1. 将 Android 设备通过 USB 连接到 Mac。
-2. 在手机上选择“文件传输”或“MTP”模式。
-3. 如手机弹出信任提示，请允许当前电脑访问设备。
-4. 启动应用后选择设备并浏览文件。
+1. Connect your Android device to your Mac via USB.
+2. On the phone, select **File Transfer** or **MTP** mode.
+3. If prompted, allow this computer to access the device.
+4. Launch the app, select your device, and browse files.
 
-## 下载与发布
+## Download & Releases
 
-最新版本可以在 [GitHub Releases](https://github.com/runsli/MTPMate/releases) 下载。
+The latest release is available on [GitHub Releases](https://github.com/runsli/MTPMate/releases).
 
-发布新版本时，推送 `v*` 格式的 Git tag 即可触发 GitHub Actions 自动构建：
+To publish a new release, push a Git tag in the `v*` format to trigger the GitHub Actions workflow:
 
 ```sh
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-工作流会自动完成以下操作：
+The workflow will:
 
-- 安装 `libmtp` 和 `libusb`
-- 构建 Release 版本的 `MTPMate.app`
-- 打包为 `MTPMate-<version>-macOS-<arch>.zip`
-- 创建 GitHub Release
-- 根据提交记录生成更新日志
-- 在 Release 说明中写入对应版本的下载链接
+- Install `libmtp` and `libusb`
+- Build a Release `MTPMate.app`
+- Package it as `MTPMate-<version>-macOS-<arch>.zip`
+- Create a GitHub Release
+- Generate release notes from commits
+- Add download links to the release description
 
-## 已知限制
+## Known Limitations
 
-- MTP 设备访问依赖系统 USB 权限、设备解锁状态和手机端传输模式。
-- 不同 Android 厂商的 MTP 实现可能存在差异。
-- 部分传输、拖拽和目录操作仍在完善中。
-- 如果无法访问设备，请先确认手机已解锁、已选择 MTP 模式，并重新插拔 USB。
-- 当前 Release 包默认使用临时签名，未进行 Apple notarization。首次打开时 macOS 可能会显示安全提示。
+- MTP device access depends on USB permissions, device unlock state, and the transfer mode selected on the phone.
+- MTP implementations may vary across Android manufacturers.
+- Some transfer, drag-and-drop, and directory operations are still being improved.
+- If the device is not accessible, make sure the phone is unlocked, MTP mode is selected, and try reconnecting the USB cable.
+- Release builds use ad-hoc signing and are not Apple-notarized. macOS may show a security prompt on first launch.
 
-## 技术栈
+## Tech Stack
 
 - SwiftUI
 - AppKit
@@ -91,6 +93,6 @@ git push origin v1.0.0
 - Objective-C bridge
 - libmtp
 
-## 许可证
+## License
 
-本项目基于 MIT License 开源，详见 [LICENSE](LICENSE)。
+This project is open source under the MIT License. See [LICENSE](LICENSE) for details.
